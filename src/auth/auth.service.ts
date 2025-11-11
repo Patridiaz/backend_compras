@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsuariosService } from '../usuarios/usuarios.service';
 import { RegisterDto } from './dto/register.dto';
@@ -38,22 +38,29 @@ export class AuthService {
   /**
    * Crea el JWT (token de acceso) para un usuario ya validado.
    */
-async login(user: any) {
-  const payload = {
-    sub: user.id,
-    email: user.email,
-    roles: user.roles.map(rol => rol.nombre),
-    nombre: user.name, 
-  };
-  
-  const { password, ...userResult } = user;
+    async login(user: any) {
+        const userId = user.id ? Number(user.id) : 0; 
 
-  return {
-    access_token: this.jwtService.sign(payload),
-    user: userResult,
-  };
-}
+        if (userId === 0) {
+            console.error('❌ Error: Usuario sin ID válido al intentar crear el token.', user);
+            throw new InternalServerErrorException('Error interno de autenticación: ID de usuario faltante.');
+        }
+        
+        const payload = {
+            sub: userId, // 👈 ¡Usamos el ID asegurado como number!
+            email: user.email,
+            roles: Array.isArray(user.roles) ? user.roles.map(rol => rol.nombre) : [],
+            nombre: user.name, 
+        };
+        
+        const { password, ...userResult } = user;
 
+        return {
+            access_token: this.jwtService.sign(payload),
+            user: userResult,
+        };
+    }
+    
   /**
    * Registra un nuevo usuario, delegando la creación al UsuariosService.
    */

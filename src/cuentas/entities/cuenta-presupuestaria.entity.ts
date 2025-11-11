@@ -5,7 +5,8 @@ import {
   Index,
   OneToMany,
 } from 'typeorm';
-import { SolicitudCompra } from 'src/solicitudes/entities/solicitud-compra.entity';
+import { SolicitudCompra } from '../../solicitudes/entities/solicitud-compra.entity';
+import { SolicitudCuentaPresupuestaria } from 'src/solicitudes/entities/SolicitudCuentaPresupuestaria.entity';
 
 export type TipoCuenta = 'MATRIZ' | 'DETALLE';
 
@@ -24,6 +25,7 @@ export class CuentaPresupuestaria {
   @Column({ type: 'nvarchar', length: 16 })
   tipo: TipoCuenta; // 'GASTO' | 'INGRESO' | 'OTRA'
 
-  @OneToMany(() => SolicitudCompra, (s) => s.finCuenta)
-  solicitudes: SolicitudCompra[];
+// ✅ CAMBIO: Apunta a la entidad intermedia
+  @OneToMany(() => SolicitudCuentaPresupuestaria, (sc) => sc.cuentaPresupuestaria)
+  solicitudesRelaciones: SolicitudCuentaPresupuestaria[]; // Usar un nombre que refleje que es la relación
 }

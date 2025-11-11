@@ -24,6 +24,7 @@ async findByEmail(email: string): Promise<Usuario | null> {
   return this.repo.createQueryBuilder('user') 
   
     // Esta es la línea más importante: le pedimos explícitamente la contraseña.
+    .select(['user.id', 'user.email', 'user.name'])
     .addSelect('user.password')
     
     // Cargamos las relaciones que necesitamos para el login y el token.

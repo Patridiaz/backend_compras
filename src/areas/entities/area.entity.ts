@@ -1,5 +1,5 @@
 // En: src/areas/entities/area.entity.ts
-import { SolicitudCompra } from 'src/solicitudes/entities/solicitud-compra.entity';
+import { SolicitudCompra } from '../../solicitudes/entities/solicitud-compra.entity';
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 
 @Entity('areas_revisoras')

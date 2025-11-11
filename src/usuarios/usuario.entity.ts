@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, JoinTable, ManyToOne, JoinColumn } from 'typeorm';
 import { RolUser } from './rol-user.entity';
-import { AreaRevisora } from 'src/areas/entities/area.entity'; // Import AreaRevisora
+import { AreaRevisora } from '../areas/entities/area.entity'; 
 
 @Entity('user')
 export class Usuario {

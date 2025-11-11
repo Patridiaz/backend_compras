@@ -25,6 +25,8 @@ import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { AssignAreaDto } from './dto/assign-area.dto';
 import { RevisarSolicitudDto } from './dto/revisar-solicitud.dto';
+import { DevolverSolicitudDto } from './dto/devolver-solicitud.dto';
+import { Usuario } from 'src/usuarios/usuario.entity';
 
 @UseGuards(JwtAuthGuard)
 @Controller('solicitudes')
@@ -178,15 +180,57 @@ export class SolicitudesController {
     return this.service.findOne(+id);
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateSolicitudDto) {
-    return this.service.update(+id, dto);
-  }
+@Patch(':id')
+@UseInterceptors( // 👈 ¡AGREGAR ESTE BLOQUE!
+    FileFieldsInterceptor(
+        [
+            { name: 'cotizacion', maxCount: 1 },
+            { name: 'terminos_de_referencia', maxCount: 1 },
+            { name: 'bt', maxCount: 1 },
+            { name: 'req_compra_agil', maxCount: 1 },
+            { name: 'nominas', maxCount: 1 },
+            { name: 'espec_productos', maxCount: 1 },
+        ],
+        {
+            storage: diskStorage({
+                destination: './uploads',
+                filename: (req, file, cb) => {
+                    const randomName = Array(32)
+                        .fill(null)
+                        .map(() => Math.round(Math.random() * 16).toString(16))
+                        .join('');
+                    return cb(null, `${randomName}${extname(file.originalname)}`);
+                },
+            }),
+        },
+    ),
+) // 👈 FIN DEL INTERCEPTOR
+update(
+    @Param('id') id: string, 
+    @UploadedFiles() files: any, 
+    @Body() dto: UpdateSolicitudDto,
+    @Request() req 
+) {
+
+    return this.service.update(+id, dto, req.user as Usuario, files); 
+    // 💡 Asegúrate de que el método `update` en el servicio acepta `files`
+}
 
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.service.remove(+id);
   }
 
-
+  // --- NUEVO ENDPOINT PARA DEVOLVER AL SOLICITANTE ---
+  @Post(':id/devolver')
+    // ✅ Usar Guards y Roles aquí para restringir a COMPRAS, FINANZAS, JEFA DEM
+    devolverSolicitud(
+      @Param('id') id: string,
+      @Body() dto: DevolverSolicitudDto, // Usa el nuevo DTO
+      @Request() req, // Para obtener el usuario del token
+    ) {
+      console.log('--- ↩️ [POST] /solicitudes/:id/devolver ---');
+      // Casteamos req.user (payload del token) a Usuario
+      return this.service.devolverAlSolicitante(Number(id), dto, req.user as Usuario);
+    }
 }

@@ -12,13 +12,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       secretOrKey: configService.get<string>('JWT_SECRET'),
     });
   }
-
   // Este método toma el payload decodificado y lo convierte en req.user
   async validate(payload: any) {
     return {
       id: payload.sub,
       email: payload.email,
-      roles: payload.roles, // ✅ Ahora payload.roles será un array de strings como ['ADMIN']
+      roles: payload.roles, 
       nombre: payload.nombre,
     };
   }

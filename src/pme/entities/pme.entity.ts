@@ -1,5 +1,5 @@
-import { Establecimiento } from 'src/establecimientos/entities/establecimiento.entity';
-import { SolicitudCompra } from 'src/solicitudes/entities/solicitud-compra.entity';
+import { Establecimiento } from '../../establecimientos/entities/establecimiento.entity';
+import { SolicitudCompra } from '../../solicitudes/entities/solicitud-compra.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,

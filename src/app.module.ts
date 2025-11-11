@@ -15,12 +15,15 @@ import { PmeModule } from './pme/pme.module';
 import { EstadosModule } from './estados/estados.module';
 import { CuentasModule } from './cuentas/cuentas.module';
 import { CentroCostoModule } from './centro-costo/centro-costo.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
 
-    // ✅ ESTA ES AHORA TU ÚNICA CONEXIÓN A LA BASE DE DATOS
+
     TypeOrmModule.forRootAsync({
       // ❌ Se elimina 'name: 'ticketsConnection'' porque ahora es la conexión por defecto.
       inject: [ConfigService],
@@ -62,6 +65,7 @@ import { CentroCostoModule } from './centro-costo/centro-costo.module';
     EstadosModule,
     CuentasModule,
     CentroCostoModule,
+    TasksModule
   ],
 })
 export class AppModule {}

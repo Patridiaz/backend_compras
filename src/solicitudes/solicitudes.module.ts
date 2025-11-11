@@ -14,6 +14,7 @@ import { Pme } from 'src/pme/entities/pme.entity';
 import { CuentaPresupuestaria } from 'src/cuentas/entities/cuenta-presupuestaria.entity';
 import { ObservacionArea } from 'src/observaciones/entities/observacion-area.entity';
 import { CentroCosto } from 'src/centro-costo/entities/centro-costo.entity';
+import { SolicitudCuentaPresupuestaria } from './entities/SolicitudCuentaPresupuestaria.entity';
 
 @Module({
   imports: [
@@ -30,7 +31,8 @@ import { CentroCosto } from 'src/centro-costo/entities/centro-costo.entity';
       CuentaPresupuestaria,
       ObservacionArea,
       Usuario, 
-      CentroCosto
+      CentroCosto,
+      SolicitudCuentaPresupuestaria,
     ]),
 
   ],

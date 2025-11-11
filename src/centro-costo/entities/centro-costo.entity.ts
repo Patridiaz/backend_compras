@@ -1,4 +1,4 @@
-import { SolicitudCompra } from 'src/solicitudes/entities/solicitud-compra.entity';
+import { SolicitudCompra } from '../../solicitudes/entities/solicitud-compra.entity';
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 
 @Entity('centros_costo') // Nombre de la tabla en la BD

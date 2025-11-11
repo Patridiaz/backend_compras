@@ -15,6 +15,14 @@ export class CreateSolicitudDto {
   @IsNumber() fondo_id: number;
   @IsNumber() modalidad_id: number;
 
+  @IsOptional() @IsString() cotizacion?: string; 
+  @IsOptional() @IsString() terminos_de_referencia?: string; 
+  @IsOptional() @IsString() bt?: string; 
+  @IsOptional() @IsString() req_compra_agil?: string; 
+  @IsOptional() @IsString() nominas?: string; 
+  @IsOptional() @IsString() espec_productos?: string;
+  @IsOptional() @IsString() observaciones?: string;
+
   @IsOptional() @IsString() id_convenio_marco?: string;
   // PME (si lo usas)
   @IsOptional() @IsNumber() pme_id?: number;

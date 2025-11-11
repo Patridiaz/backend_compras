@@ -6,9 +6,9 @@ import {
   JoinColumn,
   CreateDateColumn,
 } from 'typeorm';
-import { AreaRevisora } from 'src/areas/entities/area.entity';
-import { SolicitudCompra } from 'src/solicitudes/entities/solicitud-compra.entity';
-import { Usuario } from 'src/usuarios/usuario.entity'; // ✅ 1. Importa Usuario
+import { AreaRevisora } from '../../areas/entities/area.entity';
+import { SolicitudCompra } from '../../solicitudes/entities/solicitud-compra.entity';
+import { Usuario } from '../../usuarios/usuario.entity'; // ✅ 1. Importa Usuario
 
 @Entity('observaciones_area')
 export class ObservacionArea {

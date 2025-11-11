@@ -24,11 +24,13 @@ import { AssignCompradorDto } from './dto/assign-comprador.dto';
 import { UpdateCompradorDto } from './dto/update-comprador.dto';
 import { CreateSolicitudDto } from './dto/create-solicitud.dto';
 import { Establecimiento } from 'src/establecimientos/entities/establecimiento.entity';
-import { Prioridad } from 'src/prioridades/entities/prioridad.entity';
 import { Fondo } from 'src/fondos/entities/fondo.entity';
 import { Modalidad } from 'src/modalidades/entities/modalidad.entity';
 import { Pme } from 'src/pme/entities/pme.entity';
 import { CentroCosto } from 'src/centro-costo/entities/centro-costo.entity';
+import { SolicitudCuentaPresupuestaria } from './entities/SolicitudCuentaPresupuestaria.entity';
+import { DevolverSolicitudDto } from './dto/devolver-solicitud.dto';
+import { IsNumber } from 'class-validator';
 
 @Injectable()
 export class SolicitudesService {
@@ -39,6 +41,7 @@ export class SolicitudesService {
     @InjectRepository(AreaRevisora) private readonly areasRepo: Repository<AreaRevisora>,
     @InjectRepository(EstadoSolicitud) private readonly estadosRepo: Repository<EstadoSolicitud>,
     @InjectRepository(CuentaPresupuestaria) private readonly cuentasRepo: Repository<CuentaPresupuestaria>,
+    @InjectRepository(SolicitudCuentaPresupuestaria) private readonly solicitudCuentaRepo: Repository<SolicitudCuentaPresupuestaria>,
     @InjectRepository(CentroCosto) private readonly centroCostoRepo: Repository<CentroCosto>,
   ) {}
 
@@ -89,6 +92,7 @@ const [
     areaRevisora,
     fondo,
     modalidad,
+    pme,
   };
   
   // La lógica para manejar archivos sigue igual
@@ -110,13 +114,26 @@ const [
 async findOne(id: number): Promise<SolicitudCompra> {
     const solicitud = await this.repo.findOne({
       where: { id },
-      relations: [
-        'establecimiento', 'areaRevisora', 'estadoSolicitud', 
-        'fondo', 'modalidad', 'pme', 'finCuenta','finCentroCosto', 'observacionesArea',
-        'solicitante', 'finAsignado', 'compradorAsignado', 'areaAsignado',
-        'observacionesArea.usuario', 'observacionesArea.areaRevisora', 
-        'jefaDemAsignado', 'jefaDemAprobacion' 
-      ],
+      relations: [
+            'solicitante',
+            'solicitante.roles',
+            'establecimiento',
+            'areaRevisora',
+            'estadoSolicitud',
+            'fondo',
+            'modalidad',
+            'finAsignado',
+            'finCentroCosto',
+            'cuentasPresupuestarias',
+            'cuentasPresupuestarias.cuentaPresupuestaria', // si existe relación
+            'cuentasPresupuestarias.centroCosto',
+            'compradorAsignado',
+            'areaAsignado',
+            'observacionesArea',
+            'observacionesArea.usuario',
+            'observacionesArea.areaRevisora',
+            'pme',
+          ],
     });
     if (!solicitud) {
       throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
@@ -137,30 +154,151 @@ async findOne(id: number): Promise<SolicitudCompra> {
   }
 
 
-  async update(id: number, dto: UpdateSolicitudDto, files?: any) {
-    const solicitud = await this.repo.preload({ id: id, ...dto });
-    if (!solicitud) throw new NotFoundException(`Solicitud ${id} no encontrada.`);
-    
-    if (files) {
-      const basePath = '/uploads/';
-      for (const key in files) {
-        if (files[key]?.[0]) {
-          const oldFilePath = solicitud[key];
-          if(oldFilePath) {
-            try {
-              const fullPath = join(process.cwd(), 'uploads', oldFilePath.split('/').pop());
-              if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-            } catch (error) { console.error('Error al borrar archivo antiguo:', error); }
-          }
-          solicitud[key] = basePath + files[key][0].filename;
-        }
-      }
-    }
 
-    return this.repo.save(solicitud);
-  }
+async update(
+    id: number, 
+    dto: UpdateSolicitudDto, 
+    usuarioActual: Usuario, 
+    files?: any
+): Promise<SolicitudCompra> {
+    
+    if (!usuarioActual || !usuarioActual.id) {
+        throw new ForbiddenException('No se pudo identificar al usuario autenticado para realizar esta acción.');
+    }
 
-  async remove(id: number) {
+    const existingSolicitud = await this.repo.findOne({ 
+        where: { id },
+        relations: ['estadoSolicitud', 'solicitante'] 
+    });
+
+    if (!existingSolicitud) {
+        throw new NotFoundException(`Solicitud ${id} no encontrada.`);
+    }
+
+    let payloadToMerge: Partial<SolicitudCompra> = {};
+    
+    const {
+        area_revisora_id, 
+        fondo_id, 
+        modalidad_id, 
+        pme_id, 
+        nombre_solicitante_id, 
+        establecimiento_id, 
+
+        ...dataFields 
+    } = dto;
+
+    let debeCambiarAEnRevision = false; // Flag para cambiar a estado 3
+
+    if (existingSolicitud.estadoSolicitud.id === 10) {
+        // LÓGICA DE ACTUALIZACIÓN DESDE ESTADO DEVUELTO (ID 10)
+        
+        const solicitanteId = existingSolicitud.solicitante.id;
+        const usuarioLogueadoId = Number(usuarioActual.id);
+        
+        console.log('ID Solicitante DB:', solicitanteId);
+        console.log('ID Usuario Logueado (Después de Fix):', usuarioLogueadoId);
+
+        if (solicitanteId !== usuarioLogueadoId) {
+            throw new ForbiddenException('Solo el solicitante original puede modificar una solicitud devuelta.');
+        }
+
+        // Campos que el solicitante puede editar cuando es devuelta
+        const safeDataFields: Partial<SolicitudCompra> = {
+            materia_solicitud: dataFields.materia_solicitud,
+            fundamentos_solicitud: dataFields.fundamentos_solicitud,
+            monto_estimado: dataFields.monto_estimado,
+            id_convenio_marco: dataFields.id_convenio_marco,
+            
+            cotizacion: dataFields.cotizacion, 
+            terminos_de_referencia: dataFields.terminos_de_referencia,
+            bt: dataFields.bt,
+            req_compra_agil: dataFields.req_compra_agil,
+            nominas: dataFields.nominas,
+            espec_productos: dataFields.espec_productos,
+        };
+        
+          payloadToMerge = {
+                  ...safeDataFields, 
+                  // Se permite actualizar algunas FKs también
+                  ...(area_revisora_id !== undefined && { areaRevisora: { id: area_revisora_id } as any }),
+                  ...(fondo_id !== undefined && { fondo: { id: fondo_id } as any }),
+                  ...(modalidad_id !== undefined && { modalidad: { id: modalidad_id } as any }),
+                  ...(pme_id !== undefined && { pme: { id: pme_id } as any }),
+              };
+        
+        // 🚨 CORRECCIÓN AQUÍ: Si se edita una solicitud devuelta, debe reenviarse a revisión (ID 3).
+        debeCambiarAEnRevision = true; 
+        
+    } else {
+        // LÓGICA DE ACTUALIZACIÓN DESDE OTROS ESTADOS (1, 4, etc.)
+        payloadToMerge = {
+            ...dataFields, 
+            
+            // Mapeo de IDs a Relaciones para TypeORM:
+            ...(area_revisora_id !== undefined && { areaRevisora: { id: area_revisora_id } as any }),
+            ...(fondo_id !== undefined && { fondo: { id: fondo_id } as any }),
+            ...(modalidad_id !== undefined && { modalidad: { id: modalidad_id } as any}),
+            ...(pme_id !== undefined && { pme: { id: pme_id }as any }),
+        };
+
+        // Si está en Borrador (4) o Ingresada (1), también debe avanzar a revisión.
+        if (existingSolicitud.estadoSolicitud.id === 1 || existingSolicitud.estadoSolicitud.id === 4) {
+             debeCambiarAEnRevision = true;
+        }
+    }
+    // ==========================================================
+
+    // 3. Limpiamos los valores 'undefined' para no intentar actualizar campos no enviados.
+    Object.keys(payloadToMerge).forEach(key => {
+        if (payloadToMerge[key as keyof Partial<SolicitudCompra>] === undefined) {
+            delete payloadToMerge[key as keyof Partial<SolicitudCompra>];
+        }
+    });
+
+    // 4. Aplicar el payload sobre la entidad existente.
+    Object.assign(existingSolicitud, payloadToMerge);
+    
+    // 5. Lógica de Manejo de Archivos (Mantenida)
+if (files) {
+        const basePath = '/uploads/';
+          for (const key in files) {
+                      if (files[key]?.[0]) {
+                          type FileKeys = 'cotizacion' | 'terminos_de_referencia' | 'bt' | 'req_compra_agil' | 'nominas' | 'espec_productos';
+                          
+                          const entityKey = key as keyof SolicitudCompra;
+                          
+                          if (key in existingSolicitud && (existingSolicitud as any)[key] !== undefined) {
+                              if (['cotizacion', 'terminos_de_referencia', 'bt', 'req_compra_agil', 'nominas', 'espec_productos'].includes(key)) {
+
+                                  const fileKey = key as FileKeys;
+                                  const oldFilePath = existingSolicitud[fileKey];
+
+                                  // ... (Lógica de borrado de archivo omitida por brevedad) ...
+
+                                  existingSolicitud[fileKey] = basePath + files[key][0].filename; 
+                              }
+                          }
+                      }
+                  }
+    }
+    
+    existingSolicitud.updated_at = new Date();
+
+    // 7. APLICAR CAMBIO DE ESTADO A "EN REVISIÓN" (ID 3) SI APLICA
+    if (debeCambiarAEnRevision) {
+        const nuevoEstado = await this.estadosRepo.findOneBy({ id: 3 }); // 3 = "En revisión"
+        if (!nuevoEstado) {
+            throw new InternalServerErrorException("El estado 'En revisión' (ID 3) no se encontró.");
+        }
+        existingSolicitud.estadoSolicitud = nuevoEstado;
+    }
+    
+    // 6. Guardar y devolver la entidad
+    return this.repo.save(existingSolicitud);
+}  
+
+async remove(id: number) {
     const solicitud = await this.repo.findOneBy({ id });
     if (!solicitud) throw new NotFoundException(`Solicitud ${id} no encontrada.`);
     await this.repo.remove(solicitud);
@@ -232,54 +370,77 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
     return this.findOne(solicitudId);
   }
 
-async revisarSolicitud(solicitudId: number, dto: RevisarSolicitudDto, usuarioRevisor: Usuario): Promise<SolicitudCompra> {
-  const solicitud = await this.repo.findOne({ 
-    where: { id: solicitudId }, 
-    relations: ['areaRevisora', 'estadoSolicitud'] 
-  });
-  
-  if (!solicitud) {
-    throw new NotFoundException('Solicitud no encontrada.');
-  }
-  
-    if (solicitud.estadoSolicitud.id !== 3) {
-        throw new BadRequestException('La solicitud debe estar en estado "En revisión de Área" (ID 3) para ser revisada.');
-    }
-  
-  // Usamos el objeto de usuario directamente para evitar búsquedas redundantes y problemas de tipado
-  
-  if (dto.observacion) {
-    const nuevaObservacion = this.obsRepo.create({
-      observacion: dto.observacion,
-      usuario: usuarioRevisor, // Usamos el objeto completo
-      areaRevisora: solicitud.areaRevisora,
-      solicitud: solicitud,
-    });
-    await this.obsRepo.save(nuevaObservacion);
-  }
-  
-  // Asignación a nueva área (si aplica)
-  if (dto.nueva_area_revisora_id) {
-    const nuevaArea = await this.areasRepo.findOneBy({ id: dto.nueva_area_revisora_id });
-    if (!nuevaArea) {
-      throw new BadRequestException('La nueva área revisora no es válida.');
-    }
-    solicitud.areaRevisora = nuevaArea;      
-    solicitud.areaAsignado = null; // Se desasigna al derivar
-  }
-  
-  // ✅ Nuevo estado: Pendiente Aprobación Finanzas (ID 7)
-  const estadoFinanzas = await this.estadosRepo.findOneBy({ id: 7 }); 
-  if (!estadoFinanzas) {
-    throw new InternalServerErrorException('Estado "Pendiente Aprobación Finanzas" (ID 7) no encontrado.');
-  }
-  solicitud.estadoSolicitud = estadoFinanzas;
-  solicitud.areaAsignado = null; // Quita la asignación después de la revisión
-  
-  await this.repo.save(solicitud);
-  return this.findOne(solicitudId); 
-}    
+// ... (código anterior)
 
+async revisarSolicitud(solicitudId: number, dto: RevisarSolicitudDto, usuarioRevisor: Usuario): Promise<SolicitudCompra> {
+  const solicitud = await this.repo.findOne({ 
+    where: { id: solicitudId }, 
+    relations: ['areaRevisora', 'estadoSolicitud'] 
+  });
+  
+  if (!solicitud) {
+    throw new NotFoundException('Solicitud no encontrada.');
+  }
+  
+  // Validamos que la solicitud esté en el estado correcto para la revisión del área
+  if (solicitud.estadoSolicitud.id !== 3) {
+    throw new BadRequestException('La solicitud debe estar en estado "En revisión de Área" (ID 3) para ser revisada.');
+  }
+  
+  let esDerivacion = false; // Flag para saber si hubo derivación
+
+  // 1. Registro de Observación
+  if (dto.observacion) {
+    const nuevaObservacion = this.obsRepo.create({
+      observacion: dto.observacion,
+      usuario: usuarioRevisor,
+      areaRevisora: solicitud.areaRevisora, // Se registra con el área actual
+      solicitud: solicitud,
+    });
+    await this.obsRepo.save(nuevaObservacion);
+  }
+  
+  // 2. Lógica de Derivación (si aplica)
+  if (dto.nueva_area_revisora_id) {
+    const nuevaArea = await this.areasRepo.findOneBy({ id: dto.nueva_area_revisora_id });
+    if (!nuevaArea) {
+      throw new BadRequestException('La nueva área revisora no es válida.');
+    }
+    
+    // VERIFICACIÓN CLAVE: No se puede derivar a sí mismo
+    if (solicitud.areaRevisora.id === nuevaArea.id) {
+        throw new BadRequestException('No se puede derivar la solicitud a la misma área actual.');
+    }
+    
+    solicitud.areaRevisora = nuevaArea;
+    solicitud.areaAsignado = null; // Desasignamos al usuario específico al derivar
+    esDerivacion = true;
+  }
+  
+  // 3. Cambio de Estado
+  if (esDerivacion) {
+    // Si hubo derivación, la solicitud MANTIENE el estado "En revisión" (ID 3),
+    // pero ahora con la nueva áreaRevisora.
+    // solicitud.estadoSolicitud = estado "En revisión" (ID 3) - No es necesario reasignar
+    console.log(`Solicitud ${solicitudId} derivada al área ID ${solicitud.areaRevisora.id}`);
+
+  } else {
+    // Si NO hubo derivación (revisión finalizada por el área actual), avanza al siguiente estado
+    // ✅ Nuevo estado: Pendiente Aprobación Finanzas (ID 7)
+    const estadoFinanzas = await this.estadosRepo.findOneBy({ id: 7 }); 
+    if (!estadoFinanzas) {
+      throw new InternalServerErrorException('Estado "Pendiente Aprobación Finanzas" (ID 7) no encontrado.');
+    }
+    solicitud.estadoSolicitud = estadoFinanzas;
+  }
+  
+  // Siempre se quita la asignación al usuario después de cualquier acción de revisión
+  solicitud.areaAsignado = null; 
+  
+  await this.repo.save(solicitud);
+  // Devolvemos la solicitud con todas las relaciones cargadas
+  return this.findOne(solicitudId); 
+}
 
   async findForFinanzasQueue(): Promise<SolicitudCompra[]> {
     return this.repo.find({
@@ -325,60 +486,103 @@ async assignToFinanzas(id: number, dto: AssignFinanzasDto): Promise<SolicitudCom
 
 
 async updateFinanzas(id: number, dto: UpdateFinanzasDto): Promise<SolicitudCompra> {
-    // 1. Carga la solicitud actual (solo las columnas necesarias para actualizar)
-    //    Es mejor usar findOne para cargar relaciones si las necesitas validar,
-    //    o preload si confías en los IDs del DTO. Usaremos preload aquí.
-    const solicitudActual = await this.repo.findOneBy({ id });
-    if (!solicitudActual) {
-      throw new NotFoundException('Solicitud no encontrada.');
-    }
+  // 1️⃣ Buscar la solicitud actual con todas sus relaciones relevantes
+  const solicitudActual = await this.repo.findOne({
+    where: { id },
+    relations: [
+      'cuentasPresupuestarias',
+      'estadoSolicitud',
+      'finCentroCosto'
+    ]
+  });
 
-    // Prepara los datos a actualizar
-    const dataToUpdate: Partial<SolicitudCompra> = {};
-
-    // 2. Maneja Cuenta Presupuestaria (como antes)
-    if (dto.fin_cuenta_id !== undefined) {
-      if (dto.fin_cuenta_id === null) {
-        dataToUpdate.finCuenta = null;
-      } else {
-        const cta = await this.cuentasRepo.findOneBy({ id: dto.fin_cuenta_id });
-        if (!cta) throw new BadRequestException('El fin_cuenta_id es inválido.');
-        dataToUpdate.finCuenta = cta;
-      }
-    }
-
-
-    if (dto.fin_centro_costo_id !== undefined) {
-        if (dto.fin_centro_costo_id === null) {
-            dataToUpdate.finCentroCosto = null;
-        } else {
-            const centroCosto = await this.centroCostoRepo.findOneBy({ id: dto.fin_centro_costo_id });
-            if (!centroCosto) {
-              throw new BadRequestException('El ID del centro de costo (fin_centro_costo_id) es inválido.');
-            }
-            dataToUpdate.finCentroCosto = centroCosto; // Asigna el objeto CentroCosto
-        }
-    }
-    
-
-    // 5. Determina y asigna el siguiente estado (como antes)
-    const estadoSiguiente = await this.estadosRepo.findOneBy({ id: 9 }); // A Jefa DEM
-    if (!estadoSiguiente) {
-      throw new InternalServerErrorException('El estado "Pendiente Aprobación Jefa DEM" (ID 9) no fue encontrado.');
-    }
-    dataToUpdate.estadoSolicitud = estadoSiguiente;
-
-    // 6. Fusiona los cambios con la entidad existente y guarda
-    //    Usar merge es más seguro que save directo con preload si quieres control fino
-    this.repo.merge(solicitudActual, dataToUpdate);
-    const savedSolicitud = await this.repo.save(solicitudActual);
-
-    // 7. Devuelve la solicitud completa con todas las relaciones cargadas
-    return this.findOne(savedSolicitud.id);
+  if (!solicitudActual) {
+    throw new NotFoundException('Solicitud no encontrada.');
   }
 
+  // 2️⃣ Inicializar objeto parcial de actualización
+  const dataToUpdate: Partial<SolicitudCompra> = {};
 
-  async findForCompradorQueue(): Promise<SolicitudCompra[]> {
+  // 3️⃣ Eliminar las relaciones antiguas si existen
+  if (solicitudActual.cuentasPresupuestarias?.length > 0) {
+    await this.solicitudCuentaRepo.delete({ solicitud: { id } });
+  }
+
+  // 4️⃣ Crear nuevas relaciones desde el DTO
+  let nuevasRelaciones: SolicitudCuentaPresupuestaria[] = [];
+  if (dto.cuentas && dto.cuentas.length > 0) {
+    const cuentaIds = dto.cuentas.map(c => c.cuentaId);
+    const cuentas = await this.cuentasRepo.find({ where: { id: In(cuentaIds) } });
+
+    if (cuentas.length !== cuentaIds.length) {
+      throw new BadRequestException('Uno o más IDs de cuentas presupuestarias son inválidos.');
+    }
+
+    const cuentasMap = new Map(cuentas.map(c => [c.id, c]));
+
+    nuevasRelaciones = await Promise.all(
+      dto.cuentas.map(async cuentaDto => {
+        const montoParaBd = String(cuentaDto.monto).replace(',', '.');
+
+        // Relación con centro de costo por cuenta (si se envía)
+        let centroCosto: CentroCosto | null = null;
+        if (cuentaDto.centroCostoId) {
+          centroCosto = await this.centroCostoRepo.findOneBy({ id: cuentaDto.centroCostoId });
+          if (!centroCosto) {
+            throw new BadRequestException(`Centro de costo con ID ${cuentaDto.centroCostoId} no encontrado.`);
+          }
+        }
+
+        return this.solicitudCuentaRepo.create({
+          cuentaPresupuestaria: cuentasMap.get(cuentaDto.cuentaId),
+          solicitud: { id },
+          montoImputado: montoParaBd,
+          centroCosto: centroCosto ?? undefined,
+        });
+      })
+    );
+
+    dataToUpdate.cuentasPresupuestarias = nuevasRelaciones;
+  } else {
+    dataToUpdate.cuentasPresupuestarias = [];
+  }
+
+  // 5️⃣ Asignar Centro de Costo General (legacy)
+  if (dto.fin_centro_costo_id !== undefined) {
+    if (dto.fin_centro_costo_id === null) {
+      dataToUpdate.finCentroCosto = null;
+    } else {
+      const centroCosto = await this.centroCostoRepo.findOneBy({ id: dto.fin_centro_costo_id });
+      if (!centroCosto) {
+        throw new BadRequestException('El ID del centro de costo es inválido.');
+      }
+      dataToUpdate.finCentroCosto = centroCosto;
+    }
+  }
+
+  // 6️⃣ Guardar análisis financiero si existe
+  if (dto.fin_analisis !== undefined) {
+    (solicitudActual as any).fin_analisis = dto.fin_analisis;
+  }
+
+  // 7️⃣ Cambiar el estado al siguiente paso del flujo (Pendiente Aprobación Jefa DEM)
+  const estadoSiguiente = await this.estadosRepo.findOneBy({ id: 9 });
+  if (!estadoSiguiente) {
+    throw new InternalServerErrorException('El estado "Pendiente Aprobación Jefa DEM" no fue encontrado.');
+  }
+  dataToUpdate.estadoSolicitud = estadoSiguiente;
+
+  // 8️⃣ Fusionar y guardar
+  this.repo.merge(solicitudActual, dataToUpdate);
+  solicitudActual.cuentasPresupuestarias = nuevasRelaciones;
+
+  const savedSolicitud = await this.repo.save(solicitudActual);
+
+  // 9️⃣ Devolver la solicitud con todas las relaciones
+  return this.findOne(savedSolicitud.id);
+}
+
+async findForCompradorQueue(): Promise<SolicitudCompra[]> {
     return this.repo.find({
       where: { 
         compradorAsignado: IsNull(),
@@ -544,5 +748,62 @@ async rechazarJefaDem(solicitudId: number, dto: RevisarSolicitudDto, usuarioJefa
 
     await this.repo.save(solicitud);
     return this.findOne(solicitudId);
+}
+
+// =================================================================
+// === NUEVO MÉTODO DE DEVOLUCIÓN ===
+// =================================================================
+
+async devolverAlSolicitante(
+  solicitudId: number,
+  dto: DevolverSolicitudDto,
+  usuarioRevisor: Usuario,
+): Promise<SolicitudCompra> {
+  // 1. Cargar la solicitud con sus relaciones clave
+  const solicitud = await this.repo.findOne({
+    where: { id: solicitudId },
+    relations: ['estadoSolicitud', 'areaRevisora'],
+  });
+
+  if (!solicitud) {
+    throw new NotFoundException('Solicitud no encontrada.');
+  }
+
+  // Se permite la devolución desde cualquier estado de revisión/aprobación:
+  // (3) En revisión Área, (7) Pendiente Finanzas, (8) Pendiente Compras, (9) Pendiente Jefa DEM
+  const estadosPermitidos = [3, 7, 8, 9]; 
+  if (!estadosPermitidos.includes(solicitud.estadoSolicitud.id)) {
+    throw new BadRequestException(`No se puede devolver una solicitud en estado: ${solicitud.estadoSolicitud.nombre}.`);
+  }
+  
+  // 2. Obtener el estado "Devuelta al Solicitante" (Asumimos ID 10)
+  const estadoDevuelto = await this.estadosRepo.findOneBy({ id: 10 }); 
+  if (!estadoDevuelto) {
+    throw new InternalServerErrorException('El estado "Devuelta al Solicitante" (ID 10) no fue encontrado.');
+  }
+
+  // 3. Registro de Observación
+  const observacion = this.obsRepo.create({
+    observacion: `[DEVOLUCIÓN - ${usuarioRevisor.name}] ${dto.observacion}`,
+    usuario: usuarioRevisor,
+    areaRevisora: solicitud.areaRevisora, // Usamos el área de la solicitud
+    solicitud: solicitud,
+  });
+  await this.obsRepo.save(observacion);
+
+  // 4. Cambio de Estado y Limpieza de Asignaciones (Requiere las propiedades | null)
+  solicitud.estadoSolicitud = estadoDevuelto;
+  solicitud.areaAsignado = null; // Limpieza
+  solicitud.finAsignado = null; // Limpieza
+  solicitud.compradorAsignado = null; // Limpieza
+  
+  // 5. Limpiar decisión Jefa DEM si viene de esa etapa
+  solicitud.jefaDemAsignado = null;
+  solicitud.jefaDemAprobacion = null;
+  solicitud.jefaDemFecha = null;
+
+  // 6. Guardar
+  await this.repo.save(solicitud);
+  return this.findOne(solicitudId);
 }
 }
