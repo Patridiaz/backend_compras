@@ -6,19 +6,7 @@ import { join } from 'path';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  app.enableCors({
-    origin: ['http://localhost:4200'], // tu frontend
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Requested-With',
-      'Accept',
-      'Cache-Control', // ✅ AGREGAR LA CABECERA FALTANTE
-    ],
-    credentials: true, // si usaras cookies
-    optionsSuccessStatus: 204, // para preflight (legacy browsers)
-  });
+  app.enableCors({});
 
   // Sirve archivos estáticos desde la carpeta 'uploads'
   // Ahora, un archivo en 'uploads/nombre-archivo.pdf' será accesible en
