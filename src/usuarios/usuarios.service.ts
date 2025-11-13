@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Usuario } from './usuario.entity';
@@ -115,22 +115,24 @@ async findByEmail(email: string): Promise<Usuario | null> {
   }
 
   
-  
-  // El método update ahora debe manejar un array de IDs de rol
-  async update(id: number, attrs: { nombre?: string; roleIds?: number[] }) {
-    const user = await this.repo.findOneBy({ id });
-    if (!user) throw new NotFoundException('Usuario no encontrado');
+  async update(id: number, attrs: { name?: string; roleIds?: number[] }) { 
+      const user = await this.repo.findOneBy({ id });
+      if (!user) throw new NotFoundException('Usuario no encontrado');
 
-    if (attrs.roleIds) {
-      const roles = await this.rolRepo.findByIds(attrs.roleIds);
-      user.roles = roles;
-    }
-    
-    if (attrs.nombre) {
-      user.name = attrs.nombre;
-    }
+      if (attrs.roleIds) {
+          const roles = await this.rolRepo.findBy({ id: In(attrs.roleIds) });
 
-    return this.repo.save(user);
+          if (roles.length !== attrs.roleIds.length) {
+              throw new BadRequestException('Uno o más IDs de rol proporcionados no existen.');
+          }
+          user.roles = roles;
+      }
+      
+      if (attrs.name) {
+          user.name = attrs.name;
+      }
+
+      return this.repo.save(user);
   }
   
   async validatePassword(plain: string, hash: string) {
@@ -138,7 +140,10 @@ async findByEmail(email: string): Promise<Usuario | null> {
   }
 
   async getAvailableRoles() {
-    const roles = await this.rolRepo.find();
-    return roles.map(rol => rol.nombre);
+    // CORRECCIÓN: Devolvemos el array de objetos completo, no solo los nombres mapeados.
+    const roles = await this.rolRepo.find({ 
+      order: { nombre: 'ASC' } 
+    }); 
+    return roles; // Devuelve RolUser[]
   }
 }

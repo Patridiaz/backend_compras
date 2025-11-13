@@ -49,8 +49,11 @@ export class SolicitudesService {
   // === MÉTODOS CRUD ===
   // =================================================================
 
-async create(dto: CreateSolicitudDto, files?: any): Promise<SolicitudCompra> {
-  // 1. Extraemos todos los IDs y el resto de los datos del DTO
+async create(
+  dto: CreateSolicitudDto,
+  usuarioSolicitante: Usuario, 
+  files?: any
+): Promise<SolicitudCompra> {
   const {
     nombre_solicitante_id,
     establecimiento_id,
@@ -61,12 +64,11 @@ async create(dto: CreateSolicitudDto, files?: any): Promise<SolicitudCompra> {
     ...otrosDatos 
   } = dto;
 
-  // 2. Buscamos TODOS los objetos de las entidades relacionadas en paralelo para mayor eficiencia
+
 const [
-    solicitante, estadoInicial, establecimiento, areaRevisora,
+    estadoInicial, establecimiento, areaRevisora,
     fondo, modalidad, pme
   ] = await Promise.all([
-    this.usuarioRepo.findOneBy({ id: nombre_solicitante_id }),
     this.estadosRepo.findOneBy({ id: 1 }), // Estado "Borrador"
     this.repo.manager.findOneBy(Establecimiento, { id: establecimiento_id }),
     this.areasRepo.findOneBy({ id: area_revisora_id }),
@@ -76,7 +78,6 @@ const [
   ]);
 
   // 3. Verificamos que todas las entidades obligatorias existan para evitar errores
-  if (!solicitante) throw new BadRequestException('El ID del solicitante no es válido.');
   if (!estadoInicial) throw new InternalServerErrorException("El estado 'Borrador' no se encontró.");
   if (!establecimiento) throw new BadRequestException('El ID del establecimiento no es válido.');
   if (!areaRevisora) throw new BadRequestException('El ID del área revisora no es válido.');
@@ -86,7 +87,7 @@ const [
   // 4. Creamos el objeto final con los OBJETOS COMPLETOS, no solo los IDs
   const data: Partial<SolicitudCompra> = {
     ...otrosDatos,
-    solicitante,
+    solicitante: usuarioSolicitante,
     estadoSolicitud: estadoInicial,
     establecimiento,
     areaRevisora,
@@ -105,9 +106,21 @@ const [
     }
   }
 
+
   // 5. Creamos y guardamos la entidad final
   const entity = this.repo.create(data);
-  return this.repo.save(entity);
+  const solicitudGuardada = await this.repo.save(entity);
+
+  const prefijo = 'COMPRAS26-';
+  const numeroCorrelativo = String(solicitudGuardada.id).padStart(5, '0');
+  const folioGenerado = prefijo + numeroCorrelativo;
+
+  await this.repo.update(
+    {id: solicitudGuardada.id},
+    { numero_solicitud: folioGenerado }
+  );
+
+  return this.findOne(solicitudGuardada.id);
 }
 
 
@@ -125,7 +138,7 @@ async findOne(id: number): Promise<SolicitudCompra> {
             'finAsignado',
             'finCentroCosto',
             'cuentasPresupuestarias',
-            'cuentasPresupuestarias.cuentaPresupuestaria', // si existe relación
+            'cuentasPresupuestarias.cuentaPresupuestaria', 
             'cuentasPresupuestarias.centroCosto',
             'compradorAsignado',
             'areaAsignado',

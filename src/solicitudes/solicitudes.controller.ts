@@ -59,14 +59,20 @@ export class SolicitudesController {
       },
     ),
   )
-  create(@UploadedFiles() files: any, @Body() dto: CreateSolicitudDto, @Req() req) {
-    console.log('--- 📥 [POST] /solicitudes ---');
-    console.log('Usuario del token:', req.user);
-    console.log('Datos del DTO:', dto);
-    // ✅ Asigna el ID del usuario del token como el creador de la solicitud.
-    dto.nombre_solicitante_id = req.user.sub;
-    return this.service.create(dto, files);
-  }
+  create(
+    @UploadedFiles() files: any, 
+    @Body() dto: CreateSolicitudDto, 
+    @Request() req: any
+  ) {
+
+      const usuarioSolicitante: Usuario = req.user;
+
+      return this.service.create(
+            dto, 
+            usuarioSolicitante,
+            files
+          );
+    }
 
   
   @Get()

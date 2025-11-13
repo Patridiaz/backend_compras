@@ -23,4 +23,16 @@ export class UsuariosController {
   getRoles() {
     return this.service.getAvailableRoles();
   }
+
+  @Patch(':id') // <-- Captura /usuarios/:id
+  async update(
+    @Param('id') id: string,
+    @Body() updateDto: { roleIds?: number[]; name?: string }, // Aquí defines lo que esperas
+  ) {
+    // Convierte el ID a número (si no lo hace automáticamente NestJS)
+    const userId = parseInt(id, 10);
+    
+    // Delega al servicio para actualizar los roles (y potencialmente el nombre)
+    return this.service.update(userId, updateDto); 
+  }
 }
