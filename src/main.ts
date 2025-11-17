@@ -7,9 +7,9 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   const allowedOrigins = [
-      'https://www.compras.eduhuechuraba.cl/',
-      'http://localhost:4200/',
-      'https://pc4h36xs-4200.brs.devtunnels.ms/' 
+      'https://www.compras.eduhuechuraba.cl',
+      'http://localhost:4200',
+      'https://pc4h36xs-4200.brs.devtunnels.ms' 
     ];
 
     app.enableCors({
