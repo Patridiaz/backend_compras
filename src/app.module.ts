@@ -17,6 +17,7 @@ import { CuentasModule } from './cuentas/cuentas.module';
 import { CentroCostoModule } from './centro-costo/centro-costo.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TasksModule } from './tasks/tasks.module';
+import { UtmModule } from './utm/utm.module';
 
 @Module({
   imports: [
@@ -65,7 +66,8 @@ import { TasksModule } from './tasks/tasks.module';
     EstadosModule,
     CuentasModule,
     CentroCostoModule,
-    TasksModule
+    TasksModule,
+    UtmModule
   ],
 })
 export class AppModule {}

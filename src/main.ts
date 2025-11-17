@@ -6,11 +6,19 @@ import { join } from 'path';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  app.enableCors({});
+  const allowedOrigins = [
+      'https://www.compras.eduhuechuraba.cl', // Por si acaso
+      'http://localhost:4200', // <--- NECESARIO PARA EL DESARROLLO LOCAL
+    ];
 
-  // Sirve archivos estáticos desde la carpeta 'uploads'
-  // Ahora, un archivo en 'uploads/nombre-archivo.pdf' será accesible en
-  // http://localhost:3000/uploads/nombre-archivo.pdf
+    app.enableCors({
+      origin: allowedOrigins,
+      allowedHeaders: 'Content-Type, Authorization',
+      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+      credentials: true, // Si manejas cookies o tokens de autenticación
+    });
+
+
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads/',
   });

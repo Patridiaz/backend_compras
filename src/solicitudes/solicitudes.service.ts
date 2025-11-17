@@ -49,11 +49,15 @@ export class SolicitudesService {
   // === MÉTODOS CRUD ===
   // =================================================================
 
+// solicitudes-compra.service.ts - Método create modificado
+
 async create(
   dto: CreateSolicitudDto,
   usuarioSolicitante: Usuario, 
   files?: any
 ): Promise<SolicitudCompra> {
+  
+  // 1. Extraer los IDs del DTO
   const {
     nombre_solicitante_id,
     establecimiento_id,
@@ -64,8 +68,8 @@ async create(
     ...otrosDatos 
   } = dto;
 
-
-const [
+  // 2. Obtener todas las entidades relacionadas
+  const [
     estadoInicial, establecimiento, areaRevisora,
     fondo, modalidad, pme
   ] = await Promise.all([
@@ -77,16 +81,36 @@ const [
     pme_id ? this.repo.manager.findOneBy(Pme, { id: pme_id }) : Promise.resolve(null),
   ]);
 
-  // 3. Verificamos que todas las entidades obligatorias existan para evitar errores
+  // 3. Verificamos que todas las entidades obligatorias existan
   if (!estadoInicial) throw new InternalServerErrorException("El estado 'Borrador' no se encontró.");
   if (!establecimiento) throw new BadRequestException('El ID del establecimiento no es válido.');
   if (!areaRevisora) throw new BadRequestException('El ID del área revisora no es válido.');
   if (!fondo) throw new BadRequestException('El ID del fondo no es válido.');
   if (!modalidad) throw new BadRequestException('El ID de la modalidad no es válido.');
+  
+  // =========================================================================
+  // 4. GENERACIÓN DEL NÚMERO DE SOLICITUD (CORRECCIÓN CRÍTICA)
+  // Generamos el número antes del SAVE, basado en el máximo ID actual + 1.
+  // Esto asume que el ID autoincremental de SQL Server será el siguiente número.
+  // =========================================================================
+  
+  // Buscar el máximo ID existente en la tabla
+  const result = await this.repo
+    .createQueryBuilder('solicitudes_compra')
+    .select('MAX(solicitudes_compra.id)', 'maxId')
+    .getRawOne();
+    
+  const ultimoId = result?.maxId || 0;
+  const proximoId = ultimoId + 1; // Estimación del ID que tendrá el nuevo registro
 
-  // 4. Creamos el objeto final con los OBJETOS COMPLETOS, no solo los IDs
+  const prefijo = 'COMPRAS26-';
+  const numeroCorrelativo = String(proximoId).padStart(5, '0');
+  const folioGenerado = prefijo + numeroCorrelativo;
+
+  // 5. Creamos el objeto final con los OBJETOS COMPLETOS
   const data: Partial<SolicitudCompra> = {
     ...otrosDatos,
+    numero_solicitud: folioGenerado, // <-- AHORA ASIGNADO ANTES DE GUARDAR
     solicitante: usuarioSolicitante,
     estadoSolicitud: estadoInicial,
     establecimiento,
@@ -96,7 +120,7 @@ const [
     pme,
   };
   
-  // La lógica para manejar archivos sigue igual
+  // La lógica para manejar archivos
   if (files) {
     const basePath = '/uploads/';
     for (const key in files) {
@@ -107,22 +131,10 @@ const [
   }
 
 
-  // 5. Creamos y guardamos la entidad final
+  // 6. Creamos y guardamos la entidad final en UNA SOLA SENTENCIA
   const entity = this.repo.create(data);
-  const solicitudGuardada = await this.repo.save(entity);
-
-  const prefijo = 'COMPRAS26-';
-  const numeroCorrelativo = String(solicitudGuardada.id).padStart(5, '0');
-  const folioGenerado = prefijo + numeroCorrelativo;
-
-  await this.repo.update(
-    {id: solicitudGuardada.id},
-    { numero_solicitud: folioGenerado }
-  );
-
-  return this.findOne(solicitudGuardada.id);
+  return this.repo.save(entity); // <-- Solo un SAVE. El UPDATE ya no es necesario.
 }
-
 
 async findOne(id: number): Promise<SolicitudCompra> {
     const solicitud = await this.repo.findOne({

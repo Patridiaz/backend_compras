@@ -27,8 +27,8 @@ export class SolicitudCompra {
   @PrimaryGeneratedColumn()
   id: number;
 
-    @Column({ type: 'varchar', length: 50, unique: true, nullable: true })
-    numero_solicitud: string;
+  @Column({ type: 'varchar', length: 50, unique: true, nullable: false })
+  numero_solicitud: string;
 
   @ManyToOne(() => Usuario)
   @JoinColumn({ name: 'nombre_solicitante_id' })
