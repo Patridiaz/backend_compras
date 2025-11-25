@@ -27,6 +27,7 @@ import { AssignAreaDto } from './dto/assign-area.dto';
 import { RevisarSolicitudDto } from './dto/revisar-solicitud.dto';
 import { DevolverSolicitudDto } from './dto/devolver-solicitud.dto';
 import { Usuario } from 'src/usuarios/usuario.entity';
+import { UpdateSolicitudAdminDto } from './dto/update-solicitud-admin.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('solicitudes')
@@ -180,6 +181,25 @@ export class SolicitudesController {
     return this.service.rechazarJefaDem(Number(id), dto, req.user);
   }
 
+  @Post(':id/rechazar')
+  rechazar(
+    @Param('id') id: string,
+    @Body() dto: RevisarSolicitudDto,
+    @Request() req,
+  ) {
+    return this.service.rechazar(Number(id), dto, req.user);
+  }
+
+  @Post(':id/:role/rechazar')
+  rechazarPorRol(
+    @Param('id') id: string,
+    @Param('role') role: string,
+    @Body() dto: RevisarSolicitudDto,
+    @Request() req,
+  ) {
+    return this.service.rechazar(Number(id), dto, req.user, role);
+  }
+
   // --- Recurso individual (al final)
   @Get(':id')
   findOne(@Param('id') id: string) {
@@ -239,4 +259,14 @@ update(
       // Casteamos req.user (payload del token) a Usuario
       return this.service.devolverAlSolicitante(Number(id), dto, req.user as Usuario);
     }
+
+  @Patch(':id/admin-update')
+  // @Auth(Rol.ADMIN) // 👈 IMPORTANTE: Descomenta esto si tienes guards para proteger la ruta
+  async adminUpdate(
+    @Param('id') id: number,
+    @Body() dto: UpdateSolicitudAdminDto,
+  ) {
+    return this.service.adminUpdate(id, dto);
+  }
+  
 }

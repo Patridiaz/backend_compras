@@ -20,10 +20,10 @@ async function bootstrap() {
       credentials: true, // Si manejas cookies o tokens de autenticación
     });
 
-
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads/',
   });
   await app.listen(5000);
 }
+
 bootstrap();

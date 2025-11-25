@@ -31,6 +31,7 @@ import { CentroCosto } from 'src/centro-costo/entities/centro-costo.entity';
 import { SolicitudCuentaPresupuestaria } from './entities/SolicitudCuentaPresupuestaria.entity';
 import { DevolverSolicitudDto } from './dto/devolver-solicitud.dto';
 import { IsNumber } from 'class-validator';
+import { UpdateSolicitudAdminDto } from './dto/update-solicitud-admin.dto';
 
 @Injectable()
 export class SolicitudesService {
@@ -728,52 +729,115 @@ async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario): Promise<Soli
 }
 
 
-async rechazarJefaDem(solicitudId: number, dto: RevisarSolicitudDto, usuarioJefaDem: Usuario): Promise<SolicitudCompra> {
-    const solicitud = await this.repo.findOne({ 
-        where: { id: solicitudId }, 
-        relations: ['areaRevisora', 'estadoSolicitud'] // Incluimos estadoSolicitud para la validación
-    });
-    
-    if (!solicitud) {
-        throw new NotFoundException('Solicitud no encontrada.');
-    }
-    
-    if (!dto.observacion || dto.observacion.trim().length < 10) {
-        throw new BadRequestException('Se requiere una observación detallada para rechazar la solicitud.');
-    }
+  async rechazarJefaDem(solicitudId: number, dto: RevisarSolicitudDto, usuarioJefaDem: Usuario): Promise<SolicitudCompra> {
+    const solicitud = await this.repo.findOne({ 
+        where: { id: solicitudId }, 
+        relations: ['areaRevisora', 'estadoSolicitud'] // Incluimos estadoSolicitud para la validación
+    });
+    
+    if (!solicitud) {
+        throw new NotFoundException('Solicitud no encontrada.');
+    }
+    
+    if (!dto.observacion || dto.observacion.trim().length < 10) {
+        throw new BadRequestException('Se requiere una observación detallada para rechazar la solicitud.');
+    }
 
-    // El estado debe ser Pendiente Aprobación Jefa DEM (ID 9)
-    if (solicitud.estadoSolicitud.id !== 9) {
-        throw new BadRequestException('Esta solicitud no está pendiente de aprobación por la Jefa DEM.');
-    }
+    // El estado debe ser Pendiente Aprobación Jefa DEM (ID 9)
+    if (solicitud.estadoSolicitud.id !== 9) {
+        throw new BadRequestException('Esta solicitud no está pendiente de aprobación por la Jefa DEM.');
+    }
 
-    // 1. Registro de observación
-    // CORRECCIÓN: Usamos 'usuarioJefaDem' directamente para evitar el error de tipado y la búsqueda redundante.
-    const observacion = this.obsRepo.create({
-        observacion: `[RECHAZO J.DEM] ${dto.observacion}`,
-        usuario: usuarioJefaDem, // Objeto Usuario garantizado, resuelve el error.
-        areaRevisora: solicitud.areaRevisora,
-        solicitud: solicitud,
-    });
-    await this.obsRepo.save(observacion);
+    // 1. Registro de observación
+    // CORRECCIÓN: Usamos 'usuarioJefaDem' directamente para evitar el error de tipado y la búsqueda redundante.
+    const observacion = this.obsRepo.create({
+        observacion: `[RECHAZO J.DEM] ${dto.observacion}`,
+        usuario: usuarioJefaDem, // Objeto Usuario garantizado, resuelve el error.
+        areaRevisora: solicitud.areaRevisora,
+        solicitud: solicitud,
+    });
+    await this.obsRepo.save(observacion);
 
-    // 2. Cambio de estado a "Rechazada" (ID 6)
-    const estadoRechazado = await this.estadosRepo.findOneBy({ id: 6 });
-    if (!estadoRechazado) {
-        throw new InternalServerErrorException('El estado "Rechazada" (ID 6) no fue encontrado.');
-    }
+    // 2. Cambio de estado a "Rechazada" (ID 6)
+    const estadoRechazado = await this.estadosRepo.findOneBy({ id: 6 });
+    if (!estadoRechazado) {
+        throw new InternalServerErrorException('El estado "Rechazada" (ID 6) no fue encontrado.');
+    }
 
-    solicitud.estadoSolicitud = estadoRechazado;
+    solicitud.estadoSolicitud = estadoRechazado;
 
-    // ✅ Registro de la decisión final
-    solicitud.jefaDemAsignado = usuarioJefaDem;
-    solicitud.jefaDemAprobacion = estadoRechazado;
-    solicitud.jefaDemFecha = new Date();
+    // ✅ Registro de la decisión final
+    solicitud.jefaDemAsignado = usuarioJefaDem;
+    solicitud.jefaDemAprobacion = estadoRechazado;
+    solicitud.jefaDemFecha = new Date();
 
 
-    await this.repo.save(solicitud);
-    return this.findOne(solicitudId);
+    await this.repo.save(solicitud);
+    return this.findOne(solicitudId);
 }
+
+  async rechazar(solicitudId: number, dto: RevisarSolicitudDto, usuario: Usuario, role?: string): Promise<SolicitudCompra> {
+    const solicitud = await this.repo.findOne({
+      where: { id: solicitudId },
+      relations: ['areaRevisora', 'estadoSolicitud'],
+    });
+
+    if (!solicitud) {
+      throw new NotFoundException('Solicitud no encontrada.');
+    }
+
+    if (!dto.observacion || dto.observacion.trim().length < 5) {
+       throw new BadRequestException('Se requiere una observación para rechazar la solicitud.');
+    }
+
+    // Validación de roles si se especifica
+    if (role) {
+        if (role === 'finanzas' && solicitud.estadoSolicitud.id !== 7) {
+             throw new BadRequestException('La solicitud no está en etapa de Finanzas.');
+        }
+        if (role === 'compras' && solicitud.estadoSolicitud.id !== 8) {
+             throw new BadRequestException('La solicitud no está en etapa de Compras.');
+        }
+        if (role === 'jefadem' && solicitud.estadoSolicitud.id !== 9) {
+             throw new BadRequestException('La solicitud no está en etapa de Jefa DEM.');
+        }
+         if (role === 'areas' && solicitud.estadoSolicitud.id !== 3) {
+             throw new BadRequestException('La solicitud no está en etapa de Revisión de Área.');
+        }
+    }
+
+    // 1. Registro de observación
+    const observacion = this.obsRepo.create({
+      observacion: `[RECHAZO ${role ? role.toUpperCase() : 'GENÉRICO'}] ${dto.observacion}`,
+      usuario: usuario,
+      areaRevisora: solicitud.areaRevisora,
+      solicitud: solicitud,
+    });
+    await this.obsRepo.save(observacion);
+
+    // 2. Cambio de estado a "Rechazada" (ID 6)
+    const estadoRechazado = await this.estadosRepo.findOneBy({ id: 6 });
+    if (!estadoRechazado) {
+      throw new InternalServerErrorException('El estado "Rechazada" (ID 6) no fue encontrado.');
+    }
+
+    solicitud.estadoSolicitud = estadoRechazado;
+
+    // Si es Jefa DEM, actualizamos sus campos específicos también
+    if (role === 'jefadem' || solicitud.estadoSolicitud.id === 9) {
+        solicitud.jefaDemAsignado = usuario;
+        solicitud.jefaDemAprobacion = estadoRechazado;
+        solicitud.jefaDemFecha = new Date();
+    }
+
+    // Limpiar asignaciones pendientes
+    solicitud.finAsignado = null;
+    solicitud.compradorAsignado = null;
+    solicitud.areaAsignado = null;
+
+    await this.repo.save(solicitud);
+    return this.findOne(solicitudId);
+  }
 
 // =================================================================
 // === NUEVO MÉTODO DE DEVOLUCIÓN ===
@@ -831,4 +895,87 @@ async devolverAlSolicitante(
   await this.repo.save(solicitud);
   return this.findOne(solicitudId);
 }
+
+
+// =================================================================
+  // === ACTUALIZACIÓN ADMINISTRATIVA (GOD MODE) ===
+  // =================================================================
+  async adminUpdate(id: number, dto: UpdateSolicitudAdminDto): Promise<SolicitudCompra> {
+    // 1. Buscar la solicitud existente
+    const solicitud = await this.repo.findOne({
+      where: { id },
+      relations: [
+        'estadoSolicitud', 'areaRevisora', 'fondo', 'modalidad', 
+        'compradorAsignado', 'finAsignado', 'establecimiento'
+      ]
+    });
+
+    if (!solicitud) {
+      throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
+    }
+
+    // 2. Actualizar campos simples (si vienen en el DTO)
+    if (dto.materia_solicitud !== undefined) solicitud.materia_solicitud = dto.materia_solicitud;
+    if (dto.fundamentos_solicitud !== undefined) solicitud.fundamentos_solicitud = dto.fundamentos_solicitud;
+    if (dto.monto_estimado !== undefined) solicitud.monto_estimado = dto.monto_estimado;
+    if (dto.id_convenio_marco !== undefined) solicitud.id_convenio_marco = dto.id_convenio_marco;
+    
+    // Campos de compra
+    if (dto.orden_compra !== undefined) solicitud.orden_compra = dto.orden_compra;
+    if (dto.numero_licitacion !== undefined) solicitud.numero_licitacion = dto.numero_licitacion;
+    if (dto.comentarios_orden_compra !== undefined) solicitud.comentarios_orden_compra = dto.comentarios_orden_compra;
+
+    // 3. Actualizar Relaciones (Foreign Keys)
+    // TypeORM permite asignar un objeto { id: X } a la relación para actualizar la FK
+
+    if (dto.estado_solicitud_id) {
+      solicitud.estadoSolicitud = { id: dto.estado_solicitud_id } as any;
+    }
+
+    if (dto.area_revisora_id) {
+      solicitud.areaRevisora = { id: dto.area_revisora_id } as any;
+    }
+
+    if (dto.fondo_id) {
+      solicitud.fondo = { id: dto.fondo_id } as any;
+    }
+
+    if (dto.modalidad_id) {
+      solicitud.modalidad = { id: dto.modalidad_id } as any;
+    }
+    
+    if (dto.establecimiento_id) {
+       solicitud.establecimiento = { id: dto.establecimiento_id } as any;
+    }
+
+    // 4. Actualizar Asignaciones de Usuarios (Manejo de nulos)
+    
+    // Comprador
+    if (dto.comprador_asignado_id !== undefined) {
+      if (dto.comprador_asignado_id === null) {
+        solicitud.compradorAsignado = null;
+      } else {
+        solicitud.compradorAsignado = { id: dto.comprador_asignado_id } as any;
+      }
+    }
+
+    // Analista Finanzas
+    if (dto.fin_asignado_id !== undefined) {
+      if (dto.fin_asignado_id === null) {
+        solicitud.finAsignado = null;
+      } else {
+        solicitud.finAsignado = { id: dto.fin_asignado_id } as any;
+      }
+    }
+
+    // 5. Guardar cambios
+    // Usamos save para que se ejecuten los subscribers si tienes alguno, o update puro si prefieres rendimiento
+    await this.repo.save(solicitud);
+
+    // 6. Retornar la solicitud actualizada y fresca
+    return this.findOne(id);
+  }
+
+
+
 }
