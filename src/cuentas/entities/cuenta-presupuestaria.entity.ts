@@ -8,8 +8,6 @@ import {
 import { SolicitudCompra } from '../../solicitudes/entities/solicitud-compra.entity';
 import { SolicitudCuentaPresupuestaria } from 'src/solicitudes/entities/SolicitudCuentaPresupuestaria.entity';
 
-export type TipoCuenta = 'MATRIZ' | 'DETALLE';
-
 @Entity('cuentas_presupuestarias')
 @Index(['codigo'], { unique: true })
 export class CuentaPresupuestaria {
@@ -21,10 +19,7 @@ export class CuentaPresupuestaria {
 
   @Column({ type: 'nvarchar', length: 255 })
   descripcion: string;
-
-  @Column({ type: 'nvarchar', length: 16 })
-  tipo: TipoCuenta; // 'GASTO' | 'INGRESO' | 'OTRA'
-
+  
 // ✅ CAMBIO: Apunta a la entidad intermedia
   @OneToMany(() => SolicitudCuentaPresupuestaria, (sc) => sc.cuentaPresupuestaria)
   solicitudesRelaciones: SolicitudCuentaPresupuestaria[]; // Usar un nombre que refleje que es la relación

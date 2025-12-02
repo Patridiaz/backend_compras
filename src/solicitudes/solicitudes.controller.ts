@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Req,
@@ -29,10 +30,31 @@ import { DevolverSolicitudDto } from './dto/devolver-solicitud.dto';
 import { Usuario } from 'src/usuarios/usuario.entity';
 import { UpdateSolicitudAdminDto } from './dto/update-solicitud-admin.dto';
 
+import { SolicitudesPdfService } from './solicitudes-pdf.service';
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
+
 @UseGuards(JwtAuthGuard)
 @Controller('solicitudes')
 export class SolicitudesController {
-  constructor(private readonly service: SolicitudesService) {}
+  constructor(
+    private readonly service: SolicitudesService,
+    private readonly pdfService: SolicitudesPdfService,
+  ) {}
+
+  @Get(':id/pdf')
+  async exportarPdf(@Param('id') id: string, @Res() res: Response) {
+    const solicitud = await this.service.findOne(Number(id));
+    const buffer = await this.pdfService.generateSolicitudPdf(solicitud);
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=solicitud_${solicitud.numero_solicitud}.pdf`,
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
+  }
 
   // --- Colección
   @Post()
@@ -267,6 +289,21 @@ update(
     @Body() dto: UpdateSolicitudAdminDto,
   ) {
     return this.service.adminUpdate(id, dto);
+  }
+
+  @Post(':id/destacar')
+  destacarSolicitud(@Param('id') id: string) {
+    return this.service.destacarSolicitud(Number(id));
+  }
+
+  @Patch(':id/liberar-comprador')
+  // @Auth(ValidRoles.comprador) // Si usas decoradores de roles
+  async liberarComprador(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCompradorDto,
+    @Request() req, // Asumiendo que tienes un decorador para obtener el usuario
+  ) {
+    return this.service.liberarSolicitudComprador(id, dto, req.user as Usuario);
   }
   
 }

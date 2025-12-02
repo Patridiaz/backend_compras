@@ -162,6 +162,9 @@ export class SolicitudCompra {
   @JoinColumn({ name: 'area_asignado_id' })
   areaAsignado: Usuario | null;
 
-
+  /* ===================== CAMPO DESTACADA ===================== */
+  @Column({ type: 'bit', default: false })
+  destacada: boolean;
 
 }
+

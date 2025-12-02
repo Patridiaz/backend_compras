@@ -976,6 +976,81 @@ async devolverAlSolicitante(
     return this.findOne(id);
   }
 
+  // =================================================================
+  // === DESTACAR SOLICITUD ===
+  // =================================================================
+  async destacarSolicitud(id: number): Promise<SolicitudCompra> {
+    const solicitud = await this.repo.findOne({
+      where: { id },
+      relations: ['estadoSolicitud']
+    });
 
+    if (!solicitud) {
+      throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
+    }
+
+    // Alternar el estado de destacada
+    solicitud.destacada = !solicitud.destacada;
+    
+    await this.repo.save(solicitud);
+    return this.findOne(id);
+  }
+
+  // =================================================================
+  // === GUARDAR Y LIBERAR (DEVUELVE A LA BANDEJA DE COMPRAS) ===
+  // =================================================================
+  
+  async liberarSolicitudComprador(
+    id: number, 
+    dto: UpdateCompradorDto, 
+    usuario: Usuario
+  ): Promise<SolicitudCompra> {
+    
+    // 1. Buscamos la solicitud con las relaciones necesarias para validar
+    const solicitud = await this.repo.findOne({
+      where: { id },
+      relations: ['estadoSolicitud', 'compradorAsignado']
+    });
+
+    console.log('Service - Solicitud Found:', solicitud ? 'Yes' : 'No');
+    if (solicitud) {
+        console.log('Service - Estado:', solicitud.estadoSolicitud?.id);
+        console.log('Service - Comprador Asignado:', solicitud.compradorAsignado?.id);
+    }
+
+    if (!solicitud) {
+      throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
+    }
+
+    // 2. Validaciones de Seguridad
+    
+    // Validar que esté en el estado correcto (Pendiente Aprobación Compras - ID 8)
+    if (solicitud.estadoSolicitud.id !== 8) {
+      throw new BadRequestException('La solicitud no se encuentra en la etapa de Compras (ID 8), no se puede liberar.');
+    }
+
+    // Validar que el usuario que intenta liberar sea quien la tiene asignada actualmente
+    // (Opcional: Si eres ADMIN podrías saltarte esto, pero por seguridad de flujo es recomendable)
+    if (solicitud.compradorAsignado?.id !== usuario.id) {
+       throw new ForbiddenException('No puedes liberar una solicitud que no tienes asignada a tu nombre.');
+    }
+
+    // 3. Guardado Parcial de Datos y Desasignación
+    // Usamos update para ser más específicos y evitar cambios no deseados en el estado
+    const updateData: any = {
+        compradorAsignado: null
+    };
+
+    if (dto.orden_compra !== undefined) updateData.orden_compra = dto.orden_compra;
+    if (dto.numero_licitacion !== undefined) updateData.numero_licitacion = dto.numero_licitacion;
+    if (dto.comentarios_orden_compra !== undefined) updateData.comentarios_orden_compra = dto.comentarios_orden_compra;
+    
+    // 4. Ejecutar actualización
+    await this.repo.update(id, updateData);
+
+    // 5. Retornar la solicitud fresca
+    return this.findOne(id);
+  }
+  
 
 }

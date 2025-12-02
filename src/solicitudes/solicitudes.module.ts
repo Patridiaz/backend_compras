@@ -15,6 +15,7 @@ import { CuentaPresupuestaria } from 'src/cuentas/entities/cuenta-presupuestaria
 import { ObservacionArea } from 'src/observaciones/entities/observacion-area.entity';
 import { CentroCosto } from 'src/centro-costo/entities/centro-costo.entity';
 import { SolicitudCuentaPresupuestaria } from './entities/SolicitudCuentaPresupuestaria.entity';
+import { SolicitudesPdfService } from './solicitudes-pdf.service';
 
 @Module({
   imports: [
@@ -37,7 +38,7 @@ import { SolicitudCuentaPresupuestaria } from './entities/SolicitudCuentaPresupu
 
   ],
   controllers: [SolicitudesController],
-  providers: [SolicitudesService],
+  providers: [SolicitudesService,SolicitudesPdfService],
   exports: [SolicitudesService],
 })
 export class SolicitudesModule {}
