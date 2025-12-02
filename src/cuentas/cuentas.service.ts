@@ -45,4 +45,13 @@ export class CuentasService {
     await this.repo.remove(e);
     return { ok: true };
   }
+
+  async fixIndex() {
+    try {
+      await this.repo.query("DROP INDEX IDX_UQ_solicitud_cuenta ON solicitudes_cuentas_presupuestarias");
+      return { message: 'Índice eliminado correctamente.' };
+    } catch (e) {
+      return { message: 'Error al eliminar índice (quizás no existe)', error: e.message };
+    }
+  }
 }

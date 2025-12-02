@@ -538,9 +538,11 @@ async updateFinanzas(id: number, dto: UpdateFinanzasDto): Promise<SolicitudCompr
   let nuevasRelaciones: SolicitudCuentaPresupuestaria[] = [];
   if (dto.cuentas && dto.cuentas.length > 0) {
     const cuentaIds = dto.cuentas.map(c => c.cuentaId);
-    const cuentas = await this.cuentasRepo.find({ where: { id: In(cuentaIds) } });
+    // Validamos solo los IDs únicos para permitir duplicados (mismo ID, diferente centro de costo)
+    const uniqueIds = [...new Set(cuentaIds)];
+    const cuentas = await this.cuentasRepo.find({ where: { id: In(uniqueIds) } });
 
-    if (cuentas.length !== cuentaIds.length) {
+    if (cuentas.length !== uniqueIds.length) {
       throw new BadRequestException('Uno o más IDs de cuentas presupuestarias son inválidos.');
     }
 

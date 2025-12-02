@@ -24,6 +24,11 @@ export class CuentasController {
     return this.service.create(dto);
   }
 
+  @Get('fix-index')
+  fixIndex() {
+    return this.service.fixIndex();
+  }
+
   @Get()
   findAll(@Query('q') q?: string) {
     return this.service.findAll(q);
