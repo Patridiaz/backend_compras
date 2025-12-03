@@ -125,6 +125,7 @@ export class SolicitudesController {
   }
 
   // --- COMPRAS (siempre ANTES de :id)
+
   @Get('compras/queue')
   findCompradorQueue() {
     return this.service.findForCompradorQueue();
@@ -151,6 +152,15 @@ export class SolicitudesController {
     @Request() req, // Para obtener el usuario del token
   ) {
     return this.service.enviarParaRevision(Number(id), req.user);
+  }
+
+  @Patch(':id/evaluar-fraccionamiento')
+  async evaluarFraccionamiento(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCompradorDto,
+    @Request() req,
+  ) {
+    return this.service.evaluarFraccionamiento(id, dto.esFraccionada, req.user);
   }
 
   // --- ÁREAS REVISORAS (siempre ANTES de :id) ---

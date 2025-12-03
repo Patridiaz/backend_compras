@@ -682,6 +682,54 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
   return this.repo.save(solicitud);
 }
 
+// =================================================================
+  // === EVALUAR FRACCIONAMIENTO (COMPRADOR) ===
+  // =================================================================
+  async evaluarFraccionamiento(
+    id: number, 
+    esFraccionada: boolean, 
+    usuario: Usuario
+  ): Promise<SolicitudCompra> {
+    
+    const solicitud = await this.repo.findOne({
+      where: { id },
+      relations: ['estadoSolicitud', 'compradorAsignado']
+    });
+
+    if (!solicitud) {
+      throw new NotFoundException(`Solicitud #${id} no encontrada.`);
+    }
+
+    // Validar que quien ejecuta sea el comprador asignado
+    if (solicitud.compradorAsignado?.id !== usuario.id) {
+        throw new ForbiddenException('Solo el comprador asignado puede realizar esta evaluación.');
+    }
+
+    // 1. Guardamos el valor del fraccionamiento
+    solicitud.fraccionamiento_compra = esFraccionada;
+
+    // 2. Lógica de cambio de estado
+    if (esFraccionada) {
+        // CASO YES: Se detecta fraccionamiento -> Se finaliza/cancela el proceso
+        // Usamos Estado 5 (Rechazada) o el que uses para cerrar el proceso negativamente
+        solicitud.estadoSolicitud = { id: 2 } as any; 
+        
+        // Opcional: Agregar un comentario automático
+        // solicitud.comentarios_orden_compra = (solicitud.comentarios_orden_compra || '') + '\n[SISTEMA]: Solicitud finalizada por detección de fraccionamiento.';
+    
+    } else {
+        // CASO NO: No hay fraccionamiento -> Sigue al siguiente proceso
+        // Asumiendo que el siguiente paso es la revisión de Jefatura (ID 9)
+        solicitud.estadoSolicitud = { id: 9 } as any; // Pendiente Jefa DEM
+        
+        // Opcional: Asignar fecha de paso a Jefa DEM si lo usas
+        // solicitud.jefaDemFecha = new Date();
+    }
+
+    await this.repo.save(solicitud);
+    return this.findOne(id);
+  }
+
 /**
  * Encuentra las solicitudes que están pendientes de aprobación final por la Jefa DEM (ID 10).
  */

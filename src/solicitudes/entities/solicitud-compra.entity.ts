@@ -166,5 +166,7 @@ export class SolicitudCompra {
   @Column({ type: 'bit', default: false })
   destacada: boolean;
 
+  @Column({ type: 'bit', default: false, nullable: true })
+  fraccionamiento_compra: boolean;
 }
 

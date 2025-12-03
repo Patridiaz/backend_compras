@@ -1,4 +1,4 @@
-import { IsDateString, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UpdateCompradorDto {
   @IsOptional()
@@ -20,4 +20,8 @@ export class UpdateCompradorDto {
   @IsOptional()
   @IsString()
   com_observaciones?: string;
+
+  @IsBoolean()
+  @IsNotEmpty()
+  esFraccionada: boolean;
 }
