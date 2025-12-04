@@ -1,7 +1,9 @@
 import { Type } from '@nestjs/class-transformer';
 import { 
   IsNumber, IsOptional, IsString, IsInt, Min, 
-  IsArray, ArrayMinSize, ValidateNested, Matches // 👈 Asegúrate de importar Matches y ValidateNested
+  IsArray, ArrayMinSize, ValidateNested, Matches, // 👈 Asegúrate de importar Matches y ValidateNested
+  IsBoolean,
+  IsNotEmpty
 } from 'class-validator';
 
 // --- 👇 AÑADIR ESTA CLASE DTO INTERNA ---
@@ -42,5 +44,9 @@ export class UpdateFinanzasDto {
   @IsOptional()
   @IsString()
   fin_analisis?: string | null; // <-- Añadido para que coincida con el frontend
+
+  @IsBoolean()
+  @IsNotEmpty()
+  esFraccionada: boolean;
   
 }

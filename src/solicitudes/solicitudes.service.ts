@@ -682,7 +682,7 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
   return this.repo.save(solicitud);
 }
 
-// =================================================================
+  // =================================================================
   // === EVALUAR FRACCIONAMIENTO (COMPRADOR) ===
   // =================================================================
   async evaluarFraccionamiento(
@@ -712,7 +712,55 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
     if (esFraccionada) {
         // CASO YES: Se detecta fraccionamiento -> Se finaliza/cancela el proceso
         // Usamos Estado 5 (Rechazada) o el que uses para cerrar el proceso negativamente
-        solicitud.estadoSolicitud = { id: 2 } as any; 
+        solicitud.estadoSolicitud = { id: 11 } as any; 
+        
+        // Opcional: Agregar un comentario automático
+        // solicitud.comentarios_orden_compra = (solicitud.comentarios_orden_compra || '') + '\n[SISTEMA]: Solicitud finalizada por detección de fraccionamiento.';
+    
+    } else {
+        // CASO NO: No hay fraccionamiento -> Sigue al siguiente proceso
+        // Asumiendo que el siguiente paso es la revisión de Jefatura (ID 9)
+        solicitud.estadoSolicitud = { id: 2 } as any; // Pendiente Jefa DEM
+        
+        // Opcional: Asignar fecha de paso a Jefa DEM si lo usas
+        // solicitud.jefaDemFecha = new Date();
+    }
+
+    await this.repo.save(solicitud);
+    return this.findOne(id);
+  }
+
+// =================================================================
+  // === EVALUAR FRACCIONAMIENTO (FINANZAS) ===
+  // =================================================================
+  async evaluarFraccionamientoFinanzas(
+    id: number, 
+    esFraccionada: boolean, 
+    usuario: Usuario
+  ): Promise<SolicitudCompra> {
+    
+    const solicitud = await this.repo.findOne({
+      where: { id },
+      relations: ['estadoSolicitud', 'finAsignado']
+    });
+
+    if (!solicitud) {
+      throw new NotFoundException(`Solicitud #${id} no encontrada.`);
+    }
+
+    // Validar que quien ejecuta sea el comprador asignado
+    if (solicitud.finAsignado?.id !== usuario.id) {
+        throw new ForbiddenException('Solo el usuario de finanzas asignado puede realizar esta evaluación.');
+    }
+
+    // 1. Guardamos el valor del fraccionamiento
+    solicitud.fraccionamiento_compra = esFraccionada;
+
+    // 2. Lógica de cambio de estado
+    if (esFraccionada) {
+        // CASO YES: Se detecta fraccionamiento -> Se finaliza/cancela el proceso
+        // Usamos Estado 5 (Rechazada) o el que uses para cerrar el proceso negativamente
+        solicitud.estadoSolicitud = { id: 11 } as any; 
         
         // Opcional: Agregar un comentario automático
         // solicitud.comentarios_orden_compra = (solicitud.comentarios_orden_compra || '') + '\n[SISTEMA]: Solicitud finalizada por detección de fraccionamiento.';
@@ -730,12 +778,15 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
     return this.findOne(id);
   }
 
+
+
+  // =================================================================
 /**
  * Encuentra las solicitudes que están pendientes de aprobación final por la Jefa DEM (ID 10).
  */
 async findForJefaDemQueue(): Promise<SolicitudCompra[]> {
-    return this.repo.find({
-      where: { 
+    return this.repo.find({
+        where: { 
         estadoSolicitud: { id: 9 }, // 9 = Pendiente Aprobación Jefa DEM
       },
       relations: [
@@ -1079,6 +1130,7 @@ async devolverAlSolicitante(
       throw new BadRequestException('La solicitud no se encuentra en la etapa de Compras (ID 8), no se puede liberar.');
     }
 
+
     // Validar que el usuario que intenta liberar sea quien la tiene asignada actualmente
     // (Opcional: Si eres ADMIN podrías saltarte esto, pero por seguridad de flujo es recomendable)
     if (solicitud.compradorAsignado?.id !== usuario.id) {
@@ -1101,6 +1153,51 @@ async devolverAlSolicitante(
     // 5. Retornar la solicitud fresca
     return this.findOne(id);
   }
+
+  
+// =================================================================
+  // === ROL VIEWER (ID 9) - SOLO LECTURA GLOBAL ===
+  // =================================================================
+  async findAllReadOnly(usuario: Usuario): Promise<SolicitudCompra[]> {
+    
+    const tienePermiso = usuario.roles.some((rol: any) => {
+        // Opción A: El rol es un Objeto (viene de la BD) -> Chequeamos ID o Nombre
+        if (typeof rol === 'object' && rol !== null) {
+            return Number(rol.id) === 9 || Number(rol.id) === 1 || 
+                   rol.nombre === 'solicitud_view' || rol.nombre === 'admin';
+        }
+        // Opción B: El rol es un String (viene del Token) -> Chequeamos el texto exacto
+        if (typeof rol === 'string') {
+            return rol === 'solicitud_view' || rol === 'admin'; 
+        }
+        
+        return false;
+    });
+
+    if (!tienePermiso) {
+        throw new ForbiddenException(
+            `Acceso denegado. Se requiere el rol 'solicitud_view' (ID 9) o 'admin'.`
+        );
+    }
+
+    // 2. BUSQUEDA DE DATOS
+    return this.repo.find({
+      relations: [
+        'solicitante',
+        'establecimiento',
+        'estadoSolicitud',
+        'fondo',
+        'modalidad',
+        'areaRevisora',
+        'compradorAsignado',
+        'finAsignado'
+      ],
+      order: {
+        fecha_solicitud: 'DESC',
+      },
+    });
+  }
+  
   
 
 }

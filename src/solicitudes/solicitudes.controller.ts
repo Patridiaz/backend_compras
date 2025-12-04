@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseIntPipe,
@@ -122,6 +123,14 @@ export class SolicitudesController {
   @Patch(':id/finanzas')
   updateFin(@Param('id') id: string, @Body() dto: UpdateFinanzasDto) {
     return this.service.updateFinanzas(Number(id), dto);
+  }
+  @Patch(':id/evaluar-fraccionamiento-finanzas')
+  async evaluarFraccionamientoFinanzas(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateFinanzasDto,
+    @Request() req,
+  ) {
+    return this.service.evaluarFraccionamientoFinanzas(id, dto.esFraccionada, req.user);
   }
 
   // --- COMPRAS (siempre ANTES de :id)
@@ -315,5 +324,16 @@ update(
   ) {
     return this.service.liberarSolicitudComprador(id, dto, req.user as Usuario);
   }
+
   
+
+
+// --- ENDPOINT PARA ROL SOLICITUD_VIEW (ID 9) ---
+  @Get('viewer/all')
+  async getSolicitudesViewer(
+    @Request() req
+  ) {
+    // Pasamos el usuario completo al servicio para que él valide
+    return this.service.findAllReadOnly(req.user as Usuario);
+  }
 }
