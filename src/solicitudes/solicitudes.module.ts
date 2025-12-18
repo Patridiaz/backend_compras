@@ -16,6 +16,7 @@ import { ObservacionArea } from 'src/observaciones/entities/observacion-area.ent
 import { CentroCosto } from 'src/centro-costo/entities/centro-costo.entity';
 import { SolicitudCuentaPresupuestaria } from './entities/SolicitudCuentaPresupuestaria.entity';
 import { SolicitudesPdfService } from './solicitudes-pdf.service';
+import { EmailService } from 'src/auth/nodemailer/email.service';
 
 @Module({
   imports: [
@@ -38,7 +39,7 @@ import { SolicitudesPdfService } from './solicitudes-pdf.service';
 
   ],
   controllers: [SolicitudesController],
-  providers: [SolicitudesService,SolicitudesPdfService],
+  providers: [SolicitudesService, SolicitudesPdfService, EmailService],
   exports: [SolicitudesService],
 })
 export class SolicitudesModule {}

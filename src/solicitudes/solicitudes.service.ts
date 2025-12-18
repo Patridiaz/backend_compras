@@ -32,6 +32,8 @@ import { SolicitudCuentaPresupuestaria } from './entities/SolicitudCuentaPresupu
 import { DevolverSolicitudDto } from './dto/devolver-solicitud.dto';
 import { IsNumber } from 'class-validator';
 import { UpdateSolicitudAdminDto } from './dto/update-solicitud-admin.dto';
+import { BASE_URL, generateEmailHtml, EmailTemplateData } from 'src/auth/nodemailer/email.templates';
+import { EmailService } from 'src/auth/nodemailer/email.service';
 
 @Injectable()
 export class SolicitudesService {
@@ -44,7 +46,192 @@ export class SolicitudesService {
     @InjectRepository(CuentaPresupuestaria) private readonly cuentasRepo: Repository<CuentaPresupuestaria>,
     @InjectRepository(SolicitudCuentaPresupuestaria) private readonly solicitudCuentaRepo: Repository<SolicitudCuentaPresupuestaria>,
     @InjectRepository(CentroCosto) private readonly centroCostoRepo: Repository<CentroCosto>,
+    private readonly emailService: EmailService,
   ) {}
+
+
+  // Helper para obtener toda la info necesaria para el correo
+  private async getSolicitudFull(id: number): Promise<SolicitudCompra> {
+    const solicitud = await this.repo.findOne({
+      where: { id },
+      relations: [
+        'solicitante', 
+        'estadoSolicitud', 
+        'comprador', 
+        'establecimiento',
+        'areaRevisora',
+        // ... otras relaciones de actores
+      ],
+    });
+    if (!solicitud) throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
+    return solicitud;
+  }
+
+  // Helper para enviar correo
+  private async notifyStatusChange(solicitud: SolicitudCompra, areaAccion?: string, motivo?: string): Promise<void> {
+    console.log(`[EMAIL] notifyStatusChange called for solicitud #${solicitud.id}, status: ${solicitud.estadoSolicitud?.id}`);
+    
+    const { id, numero_solicitud, estadoSolicitud, solicitante, establecimiento, compradorAsignado, finAsignado, materia_solicitud, fecha_solicitud, fondo, modalidad } = solicitud;
+    const newStatusId = estadoSolicitud.id;
+    const destinatarios: { email: string; name: string }[] = [];
+    const baseLink = `${BASE_URL}/solicitudes/${id}`;
+    
+    // Formatear fecha
+    const fechaFormatted = fecha_solicitud ? new Date(fecha_solicitud).toLocaleDateString('es-CL') : '';
+
+    let emailData: EmailTemplateData = {
+        solicitudId: id,
+        numeroSolicitud: numero_solicitud,
+        subject: `Actualización Solicitud N°${numero_solicitud}`,
+        headerColor: '#6c757d',
+        title: `Actualización: Solicitud N°${numero_solicitud}`,
+        bodyHtml: '',
+        buttonText: 'Ver Solicitud',
+        buttonLink: `${baseLink}/ver`,
+        // Nuevos campos de detalle
+        materia: materia_solicitud,
+        establecimiento: establecimiento?.name,
+        fechaSolicitud: fechaFormatted,
+        fondo: fondo?.nombre,
+        modalidad: modalidad?.nombre,
+        currentStatusId: newStatusId
+    };
+
+    // 1. Lógica de Destinatarios y Contenido
+    switch (newStatusId) {
+        case 1: // Ingresada (Solo solicitante)
+            destinatarios.push({ email: solicitante.email, name: solicitante.name });
+            emailData.headerColor = '#28a745';
+            emailData.title = `✅ Solicitud N°${numero_solicitud} Ingresada`;
+            emailData.bodyHtml = `<p>Hola <strong>${solicitante.name}</strong>, su solicitud para <strong>${solicitud.materia_solicitud}</strong> ha sido ingresada correctamente. Pronto será revisada.</p>`;
+            break;
+        
+        case 3: // En Revisión (Solicitante)
+            // Cuando pasa a revisión (normalmente paso automático o manual)
+             destinatarios.push({ email: solicitante.email, name: solicitante.name });
+             emailData.headerColor = '#17a2b8';
+             emailData.title = `📝 Solicitud N°${numero_solicitud} En Revisión`;
+             emailData.bodyHtml = `<p>Hola <strong>${solicitante.name}</strong>, su solicitud está siendo revisada por el área correspondiente.</p>`;
+             break;
+
+        case 7: // Pendiente Finanzas (Solicitante + Revisor Finanzas si está asignado)
+             emailData.headerColor = '#ffc107';
+             emailData.title = `💰 Solicitud N°${numero_solicitud} en Finanzas`;
+             
+             // A solicitante 
+             destinatarios.push({ email: solicitante.email, name: solicitante.name });
+
+             // A Finanzas (si está asignado) - COMENTADO POR SOLICITUD DE USUARIO (Solo solicitante)
+             /* if (finAsignado) {
+                destinatarios.push({ email: finAsignado.email, name: finAsignado.name });
+                emailData.buttonLink = `${baseLink}/finanzas`; // Link para acción
+             } */
+             emailData.bodyHtml = `<p>La solicitud N°${numero_solicitud} ha avanzado a la etapa de <strong>Finanzas</strong>.</p>`;
+             break;
+
+        case 8: // Pendiente Compras (Solicitante + Comprador si está asignado)
+             emailData.headerColor = '#007bff';
+             emailData.title = `🛒 Solicitud N°${numero_solicitud} en Compras`;
+             
+             // A solicitante
+             destinatarios.push({ email: solicitante.email, name: solicitante.name });
+
+             // A Comprador - COMENTADO POR SOLICITUD DE USUARIO (Solo solicitante)
+             /* if (compradorAsignado) {
+                destinatarios.push({ email: compradorAsignado.email, name: compradorAsignado.name });
+                emailData.buttonLink = `${baseLink}/compras`; // Link para acción
+                emailData.bodyHtml = `<p>Hola <strong>${compradorAsignado.name}</strong>, tiene asignada la solicitud N°${numero_solicitud}.</p>`;
+             } else { */
+                emailData.bodyHtml = `<p>La solicitud N°${numero_solicitud} ha avanzado a la etapa de <strong>Compras</strong>.</p>`;
+             /* } */
+             break;
+
+        case 9: // Pendiente Jefa DEM (Solicitante + Jefa DEM)
+             emailData.headerColor = '#6610f2';
+             emailData.title = `👩‍💼 Solicitud N°${numero_solicitud} Pendiente Aprobación Jefa DEM`;
+             
+             // A solicitante
+             destinatarios.push({ email: solicitante.email, name: solicitante.name });
+             
+             // Buscar usuario con rol JEFA_DEM - COMENTADO POR SOLICITUD DE USUARIO (Solo solicitante)
+             /* const jefaDem = await this.usuarioRepo.findOne({
+               where: { roles: { nombre: 'JEFA_DEM' } },
+               relations: ['roles']
+             });
+             
+             if (jefaDem) {
+               destinatarios.push({ email: jefaDem.email, name: jefaDem.name });
+             } else {
+               console.warn('[EMAIL] No se encontró usuario con rol JEFA_DEM');
+             } */
+             
+             emailData.bodyHtml = `<p>La solicitud N°${numero_solicitud} requiere aprobación final de Jefatura.</p>`;
+             break;
+            
+        case 6: // Rechazada (Solo Solicitante)
+            destinatarios.push({ email: solicitante.email, name: solicitante.name });
+            emailData.headerColor = '#dc3545';
+            emailData.title = `❌ Solicitud N°${numero_solicitud} Rechazada`;
+            emailData.bodyHtml = `<p>Hola <strong>${solicitante.name}</strong>, su solicitud fue rechazada por <strong>${areaAccion || 'el sistema'}</strong>.</p><div style="border-left: 3px solid #dc3545; padding-left: 10px; margin-top: 10px;"><strong>Motivo:</strong> ${motivo || 'Sin motivo especificado.'}</div>`;
+            break;
+            
+        case 10: // Devuelta al Solicitante (Solo Solicitante)
+            destinatarios.push({ email: solicitante.email, name: solicitante.name });
+            emailData.headerColor = '#fd7e14';
+            emailData.title = `⚠️ Solicitud N°${numero_solicitud} Devuelta - Requiere Corrección`;
+            emailData.buttonLink = `${baseLink}/editar`;
+            emailData.buttonText = 'Corregir Solicitud';
+            emailData.bodyHtml = `<p>Hola <strong>${solicitante.name}</strong>, su solicitud fue devuelta por <strong>${areaAccion || 'Revisor'}</strong> para corrección.</p><div style="border-left: 3px solid #fd7e14; padding-left: 10px; margin-top: 10px;"><strong>Comentario:</strong> ${motivo || 'Favor revisar.'}</div>`;
+            break;
+
+        case 11: // Finalizada por fraccionamiento (Solo Solicitante)
+            destinatarios.push({ email: solicitante.email, name: solicitante.name });
+            emailData.headerColor = '#343a40';
+            emailData.title = `🚫 Solicitud N°${numero_solicitud} Cerrada por Fraccionamiento`;
+            emailData.bodyHtml = `<p>Hola <strong>${solicitante.name}</strong>, su solicitud ha sido finalizada y cerrada debido a que se detectó fraccionamiento en la compra.</p>`;
+            break;
+        
+        case 2: // Finalizada/Aprobada (Solo Solicitante)
+        case 5: // Aprobada (Dependiendo de tu flujo, si 5 es final)
+            destinatarios.push({ email: solicitante.email, name: solicitante.name });
+            emailData.headerColor = '#198754';
+            emailData.title = `✨ Solicitud N°${numero_solicitud} Finalizada Exitosamente`;
+            emailData.bodyHtml = `<p>La solicitud N°${numero_solicitud} ha completado todo el flujo de aprobación.</p>`;
+            break;
+
+        default:
+            return; // No enviar correo
+    }
+
+    // 2. Ejecutar Envío para Cada Destinatario
+    // Filtramos duplicados por si acaso
+    const uniqueEmails = new Set();
+    
+    console.log(`[EMAIL] Sending to ${destinatarios.length} recipients for status ${newStatusId}`);
+    
+    for (const dest of destinatarios) {
+        if (!dest.email || uniqueEmails.has(dest.email)) continue;
+        uniqueEmails.add(dest.email);
+
+        // Ajustamos el saludo para cada uno si se quiere personalizar más, 
+        // pero por simplicidad usamos el bodyHtml genérico o lo personalizamos mínimamente arriba.
+        
+        console.log(`[EMAIL] Sending email to: ${dest.email}, subject: ${emailData.subject}`);
+        
+        await this.emailService.sendNotification(
+            dest.email, 
+            emailData.subject, 
+            generateEmailHtml({
+                ...emailData,
+                // Podríamos personalizar el título o algo específico aquí si fuera necesario
+            })
+        );
+    }
+  }
+
+
+
+
 
   // =================================================================
   // === MÉTODOS CRUD ===
@@ -134,7 +321,14 @@ async create(
 
   // 6. Creamos y guardamos la entidad final en UNA SOLA SENTENCIA
   const entity = this.repo.create(data);
-  return this.repo.save(entity); // <-- Solo un SAVE. El UPDATE ya no es necesario.
+  const saved = await this.repo.save(entity);
+  
+  // [NOTIFICACIÓN] - Cargamos la solicitud completa con relaciones para el email
+  const fullSolicitud = await this.findOne(saved.id);
+  this.notifyStatusChange(fullSolicitud, undefined, undefined).catch(e => console.error('Error enviando correo Create:', e));
+  
+  return saved;
+
 }
 
 async findOne(id: number): Promise<SolicitudCompra> {
@@ -359,7 +553,13 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
     }
 
     solicitud.estadoSolicitud = nuevoEstado;
-    return this.repo.save(solicitud);
+    const saved = await this.repo.save(solicitud);
+    
+    // [NOTIFICACIÓN]
+    const fullSolicitud = await this.findOne(saved.id);
+    this.notifyStatusChange(fullSolicitud, undefined, undefined).catch(e => console.error('Error enviando correo Enviar a Revisión:', e));
+    
+    return fullSolicitud;
   }
 
   
@@ -393,7 +593,12 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
 
     solicitud.areaAsignado = usuario;
     await this.repo.save(solicitud);
-    return this.findOne(solicitudId);
+    
+    // [NOTIFICACIÓN]
+    const fullSolicitud = await this.findOne(solicitudId);
+    this.notifyStatusChange(fullSolicitud, 'Jefa DEM', undefined).catch(e => console.error('Error enviando correo Aprobar Jefa DEM:', e));
+    
+    return fullSolicitud;
   }
 
 // ... (código anterior)
@@ -401,7 +606,7 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
 async revisarSolicitud(solicitudId: number, dto: RevisarSolicitudDto, usuarioRevisor: Usuario): Promise<SolicitudCompra> {
   const solicitud = await this.repo.findOne({ 
     where: { id: solicitudId }, 
-    relations: ['areaRevisora', 'estadoSolicitud'] 
+    relations: ['areaRevisora', 'estadoSolicitud', 'solicitante']  
   });
   
   if (!solicitud) {
@@ -464,6 +669,11 @@ async revisarSolicitud(solicitudId: number, dto: RevisarSolicitudDto, usuarioRev
   solicitud.areaAsignado = null; 
   
   await this.repo.save(solicitud);
+  
+  // [NOTIFICACIÓN]
+  // Si avanzó a finanzas (7) o sigue en revisión (3)
+  this.notifyStatusChange(solicitud, solicitud.areaRevisora.nombre, dto.observacion).catch(e => console.error('Error enviando correo Revisar:', e));
+
   // Devolvemos la solicitud con todas las relaciones cargadas
   return this.findOne(solicitudId); 
 }
@@ -506,8 +716,12 @@ async assignToFinanzas(id: number, dto: AssignFinanzasDto): Promise<SolicitudCom
     
     solicitud.finAsignado = usuario;
     await this.repo.save(solicitud);
-    // ✅ CORRECCIÓN: Usamos findOne(id) para cargar todas las relaciones y evitar el error de front.
-    return this.findOne(id);
+    
+    // [NOTIFICACIÓN] - Notificar al usuario asignado
+    const fullSolicitud = await this.findOne(id);
+    this.notifyStatusChange(fullSolicitud, 'Asignación Finanzas', undefined).catch(e => console.error('Error enviando correo Asignación Finanzas:', e));
+    
+    return fullSolicitud;
   }
 
 
@@ -594,9 +808,20 @@ async updateFinanzas(id: number, dto: UpdateFinanzasDto): Promise<SolicitudCompr
   }
 
   // 7️⃣ Cambiar el estado al siguiente paso del flujo (Pendiente Aprobación Jefa DEM)
-  const estadoSiguiente = await this.estadosRepo.findOneBy({ id: 9 });
+  // 7️⃣ Cambiar el estado: si es fraccionada cierra en 11, si no avanza a 9 (Jefa DEM)
+  
+  // [FIX] Priorizar el flag de la BD o el del DTO si es true. 
+  // Evitamos que un DTO con 'esFraccionada: false' accidental sobreescriba un 'true' de la BD (race condition con evaluarFraccionamiento).
+  if (dto.esFraccionada) {
+      solicitudActual.fraccionamiento_compra = true;
+  }
+
+  const isFraccionada = solicitudActual.fraccionamiento_compra === true;
+  const nuevoEstadoId = isFraccionada ? 11 : 9;
+  
+  const estadoSiguiente = await this.estadosRepo.findOneBy({ id: nuevoEstadoId });
   if (!estadoSiguiente) {
-    throw new InternalServerErrorException('El estado "Pendiente Aprobación Jefa DEM" no fue encontrado.');
+    throw new InternalServerErrorException(`El estado ID ${nuevoEstadoId} no fue encontrado.`);
   }
   dataToUpdate.estadoSolicitud = estadoSiguiente;
 
@@ -606,8 +831,12 @@ async updateFinanzas(id: number, dto: UpdateFinanzasDto): Promise<SolicitudCompr
 
   const savedSolicitud = await this.repo.save(solicitudActual);
 
+  // [NOTIFICACIÓN]
+  const fullSolicitud = await this.findOne(savedSolicitud.id);
+  this.notifyStatusChange(fullSolicitud, 'Finanzas', undefined).catch(e => console.error('Error enviando correo Finanzas:', e));
+
   // 9️⃣ Devolver la solicitud con todas las relaciones
-  return this.findOne(savedSolicitud.id);
+  return fullSolicitud;
 }
 
 async findForCompradorQueue(): Promise<SolicitudCompra[]> {
@@ -645,8 +874,12 @@ async assignToComprador(id: number, dto: AssignCompradorDto): Promise<SolicitudC
         throw new BadRequestException('La solicitud debe estar en estado "Pendiente Aprobación Compras" (ID 8) para ser asignada.');
     }
     await this.repo.save(solicitud);
-    // ✅ CORRECCIÓN: Usamos findOne(id) para cargar todas las relaciones y evitar el error de front.
-    return this.findOne(id);
+    
+    // [NOTIFICACIÓN] - Notificar al usuario asignado
+    const fullSolicitud = await this.findOne(id);
+    this.notifyStatusChange(fullSolicitud, 'Asignación Compras', undefined).catch(e => console.error('Error enviando correo Asignación Compras:', e));
+    
+    return fullSolicitud;
   }
 
 
@@ -679,7 +912,13 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
   // solicitud.compradorAsignado = null; 
 
   // 5. Guarda la solicitud con los datos del comprador Y el nuevo estado
-  return this.repo.save(solicitud);
+  const saved = await this.repo.save(solicitud);
+  
+  // [NOTIFICACIÓN]
+  const fullSolicitud = await this.findOne(saved.id);
+  this.notifyStatusChange(fullSolicitud, 'Compras', undefined).catch(e => console.error('Error enviando correo Comprador:', e));
+  
+  return fullSolicitud;
 }
 
   // =================================================================
@@ -727,7 +966,12 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
     }
 
     await this.repo.save(solicitud);
-    return this.findOne(id);
+    
+    // [NOTIFICACIÓN]
+    const fullSolicitud = await this.findOne(id);
+    this.notifyStatusChange(fullSolicitud, 'Compras', undefined).catch(e => console.error('Error enviando correo Fraccionamiento Comprador:', e));
+    
+    return fullSolicitud;
   }
 
 // =================================================================
@@ -775,7 +1019,12 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
     }
 
     await this.repo.save(solicitud);
-    return this.findOne(id);
+    
+    // [NOTIFICACIÓN]
+    const fullSolicitud = await this.findOne(id);
+    this.notifyStatusChange(fullSolicitud, 'Finanzas', undefined).catch(e => console.error('Error enviando correo Fraccionamiento Finanzas:', e));
+    
+    return fullSolicitud;
   }
 
 
@@ -826,7 +1075,12 @@ async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario): Promise<Soli
     solicitud.jefaDemFecha = new Date();
     
     await this.repo.save(solicitud);
-    return this.findOne(solicitudId);
+    
+    // [NOTIFICACIÓN]
+    const fullSolicitud = await this.findOne(solicitudId);
+    this.notifyStatusChange(fullSolicitud, 'Jefa DEM', undefined).catch(e => console.error('Error enviando correo Aprobar Jefa DEM:', e));
+    
+    return fullSolicitud;
 }
 
 
@@ -874,8 +1128,13 @@ async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario): Promise<Soli
 
 
     await this.repo.save(solicitud);
-    return this.findOne(solicitudId);
-}
+    
+    // [NOTIFICACIÓN]
+    const fullSolicitud = await this.findOne(solicitudId);
+    this.notifyStatusChange(fullSolicitud, 'Jefa DEM', dto.observacion).catch(e => console.error('Error enviando correo Rechazar Jefa DEM:', e));
+    
+    return fullSolicitud;
+  }
 
   async rechazar(solicitudId: number, dto: RevisarSolicitudDto, usuario: Usuario, role?: string): Promise<SolicitudCompra> {
     const solicitud = await this.repo.findOne({
@@ -937,7 +1196,12 @@ async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario): Promise<Soli
     solicitud.areaAsignado = null;
 
     await this.repo.save(solicitud);
-    return this.findOne(solicitudId);
+    
+    // [NOTIFICACIÓN]
+    const fullSolicitud = await this.findOne(solicitudId);
+    this.notifyStatusChange(fullSolicitud, role || 'Sistema', dto.observacion).catch(e => console.error('Error enviando correo Rechazar:', e));
+    
+    return fullSolicitud;
   }
 
 // =================================================================
@@ -994,7 +1258,12 @@ async devolverAlSolicitante(
 
   // 6. Guardar
   await this.repo.save(solicitud);
-  return this.findOne(solicitudId);
+  
+  // [NOTIFICACIÓN]
+  const fullSolicitud = await this.findOne(solicitudId);
+  this.notifyStatusChange(fullSolicitud, usuarioRevisor.name, dto.observacion).catch(e => console.error('Error enviando correo Devolver:', e));
+  
+  return fullSolicitud;
 }
 
 

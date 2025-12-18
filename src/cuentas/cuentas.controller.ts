@@ -8,6 +8,8 @@ import {
   Delete,
   Query,
   UseGuards,
+  Request,
+  ForbiddenException
 } from '@nestjs/common';
 import { CuentasService } from './cuentas.service';
 import { CreateCuentaDto } from './dto/create-cuenta.dto';
@@ -48,4 +50,32 @@ export class CuentasController {
   remove(@Param('id') id: string) {
     return this.service.remove(+id);
   }
+
+  // ✅ NUEVO ENDPOINT DASHBOARD
+  @Get('dashboard/resumen')
+  async getDashboardPresupuesto(@Request() req) {
+    // Validar Rol (Si no tienes un decorador @Roles)
+    const roles = req.user.roles || [];
+    const esFinanzas = roles.some((r: any) => 
+        (typeof r === 'string' && r === 'finanzas') || 
+        (typeof r === 'object' && r.nombre === 'finanzas') ||
+        (typeof r === 'object' && r.id === 3) // Asumiendo ID 3 es finanzas, ajusta según tu BD
+    );
+    
+    // Permitir también al Admin ver esto
+    const esAdmin = roles.some((r: any) => r === 'admin' || r.nombre === 'admin');
+
+    if (!esFinanzas && !esAdmin) {
+       throw new ForbiddenException('Acceso exclusivo para el área de Finanzas.');
+    }
+
+    return this.service.obtenerEstadoPresupuestario();
+  }
+
+  @Get(':id/movimientos')
+    async getMovimientos(@Param('id') id: string) {
+        return this.service.obtenerMovimientosCuenta(+id);
+    }
+
+
 }

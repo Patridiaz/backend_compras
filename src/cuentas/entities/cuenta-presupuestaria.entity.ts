@@ -17,6 +17,9 @@ export class CuentaPresupuestaria {
   @Column({ type: 'nvarchar', length: 32 })
   codigo: string; // ej: 22.01.003
 
+  @Column({ type: 'decimal', precision: 18, scale: 0, default: 0 }) 
+  monto: number;
+
   @Column({ type: 'nvarchar', length: 255 })
   descripcion: string;
   
