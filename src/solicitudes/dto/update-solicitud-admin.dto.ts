@@ -64,4 +64,8 @@ export class UpdateSolicitudAdminDto {
   @IsOptional()
   @IsString()
   comentarios_orden_compra?: string;
+  
+  @IsOptional()
+  @IsString()
+  monto_final_compra?: string;
 }

@@ -137,6 +137,9 @@ export class SolicitudCompra {
   @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
   comentarios_orden_compra?: string | null; 
 
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  monto_final_compra: string | null;
+
    /* ===================== CAMPOS JEFA DEM ===================== */
   // QUIÉN APROBÓ O RECHAZÓ EL PROCESO FINAL
   @ManyToOne(() => Usuario, { nullable: true })

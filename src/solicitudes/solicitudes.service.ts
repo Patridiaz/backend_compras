@@ -1294,6 +1294,7 @@ async devolverAlSolicitante(
     if (dto.orden_compra !== undefined) solicitud.orden_compra = dto.orden_compra;
     if (dto.numero_licitacion !== undefined) solicitud.numero_licitacion = dto.numero_licitacion;
     if (dto.comentarios_orden_compra !== undefined) solicitud.comentarios_orden_compra = dto.comentarios_orden_compra;
+    if (dto.monto_final_compra !== undefined) solicitud.monto_final_compra = dto.monto_final_compra;
 
     // 3. Actualizar Relaciones (Foreign Keys)
     // TypeORM permite asignar un objeto { id: X } a la relación para actualizar la FK
@@ -1415,6 +1416,7 @@ async devolverAlSolicitante(
     if (dto.orden_compra !== undefined) updateData.orden_compra = dto.orden_compra;
     if (dto.numero_licitacion !== undefined) updateData.numero_licitacion = dto.numero_licitacion;
     if (dto.comentarios_orden_compra !== undefined) updateData.comentarios_orden_compra = dto.comentarios_orden_compra;
+    if (dto.monto_final_compra !== undefined) updateData.monto_final_compra = dto.monto_final_compra;
     
     // 4. Ejecutar actualización
     await this.repo.update(id, updateData);

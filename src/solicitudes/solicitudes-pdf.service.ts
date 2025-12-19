@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import PdfPrinter = require('pdfmake');
 import { SolicitudCompra } from './entities/solicitud-compra.entity';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class SolicitudesPdfService {
@@ -31,233 +33,232 @@ export class SolicitudesPdfService {
       }
     });
 
+    // Carga de imágenes para el encabezado
+    const logo1Path = path.join(process.cwd(), 'src/assets/images/logo1.png');
+    const logo2Path = path.join(process.cwd(), 'src/assets/images/logo2.png');
+    
+    let logo1Data: string | null = null;
+    let logo2Data: string | null = null;
+
+    try {
+        if (fs.existsSync(logo1Path)) {
+            logo1Data = `data:image/png;base64,${fs.readFileSync(logo1Path).toString('base64')}`;
+        }
+        if (fs.existsSync(logo2Path)) {
+            logo2Data = `data:image/png;base64,${fs.readFileSync(logo2Path).toString('base64')}`;
+        }
+    } catch (error) {
+        console.warn('Error loading PDF images:', error);
+    }
+
     const docDefinition: any = {
-      content: [
-                // Encabezado Principal
-                {
-          table: {
-            widths: ['*'],
-            body: [
-              [
-                {
-                  fillColor: '#003e7e',
-                  alignment: 'center',
-                  margin: [0, 12],
-                  text: 'SOLICITUD DE COMPRA',
-                  color: 'white',
-                  fontSize: 20,
-                  bold: true
-                }
-              ]
-            ]
-          },
-          layout: 'noBorders'
-        },
-        {
-          text: `Folio: ${solicitud.numero_solicitud}`,
-          alignment: 'center',
-          style: 'subHeader',
-          color: 'white',
-        },
-
-
-        // Información General (2 Columnas con bordes)
-        {
+      pageSize: 'LETTER',
+      pageMargins: [30, 80, 30, 40], // Top margin increased for header space
+      header: {
+          margin: [30, 20, 30, 0],
           columns: [
-            {
-              width: '*',
-              table: {
-                widths: ['*'],
-                body: [
-                  [
-                    {
-                      stack: [
-                        { text: 'INFORMACIÓN DEL SOLICITANTE', style: 'cardSectionTitle' },
-                        {
-                          table: {
-                            widths: ['auto', '*'],
-                            body: [
-                              [{ text: 'Solicitante', style: 'label' }, solicitud.solicitante?.name || 'N/A'],
-                              [{ text: 'Establecimiento', style: 'label' }, solicitud.establecimiento?.name || 'N/A'],
-                              [{ text: 'Fecha', style: 'label' }, new Date(solicitud.fecha_solicitud).toLocaleDateString('es-CL')],
-                            ]
-                          },
-                          layout: 'noBorders'
-                        }
-                      ],
-                      margin: [8, 8, 8, 8]
-                    }
-                  ]
-                ]
-              },
-              layout: {
-                hLineWidth: () => 1,
-                vLineWidth: () => 1,
-                hLineColor: () => '#ddd',
-                vLineColor: () => '#ddd',
-                paddingLeft: () => 0,
-                paddingRight: () => 0,
-                paddingTop: () => 0,
-                paddingBottom: () => 0
-              }
-            },
-            {
-              width: '*',
-              table: {
-                widths: ['*'],
-                body: [
-                  [
-                    {
-                      stack: [
-                        { text: 'ESTADO Y PRESUPUESTO', style: 'cardSectionTitle' },
-                        {
-                          table: {
-                            widths: ['auto', '*'],
-                            body: [
-                              [{ text: 'Estado Actual', style: 'label' }, { text: solicitud.estadoSolicitud?.nombre || 'N/A', bold: true, color: '#0a7d28' }],
-                              [{ text: 'Monto Estimado', style: 'label' }, { text: `$ ${Number(solicitud.monto_estimado).toLocaleString('es-CL')}`, bold: true, fontSize: 11 }],
-                            ]
-                          },
-                          layout: 'noBorders'
-                        }
-                      ],
-                      margin: [8, 8, 8, 8]
-                    }
-                  ]
-                ]
-              },
-              layout: {
-                hLineWidth: () => 1,
-                vLineWidth: () => 1,
-                hLineColor: () => '#ddd',
-                vLineColor: () => '#ddd',
-                paddingLeft: () => 0,
-                paddingRight: () => 0,
-                paddingTop: () => 0,
-                paddingBottom: () => 0
-              }
-            }
-          ],
-          columnGap: 15
-        },
+              logo1Data ? { image: logo1Data, width: 100, alignment: 'left' } : { text: '', width: 100 },
+              { text: '', width: '*' },
+              logo2Data ? { image: logo2Data, width: 60, alignment: 'right' } : { text: '', width: 60 }
+          ]
+      },
+      footer: (currentPage, pageCount) => {
+        return {
+            margin: [30, 10, 30, 0],
+            columns: [
+                { text: 'Generado automáticamente por el Sistema de Gestión de Compras', alignment: 'left', fontSize: 8, color: '#888' },
+                { text: `Página ${currentPage} of ${pageCount}`, alignment: 'right', fontSize: 8, color: '#888' }
+            ]
+        };
+      },
+      content: [
+         // Título Principal Centrado
+         {
+           text: 'SOLICITUD DE COMPRA',
+           style: 'mainHeader',
+           alignment: 'center'
+         },
+         {
+           text: `Folio N°: ${solicitud.numero_solicitud}`,
+           alignment: 'center',
+           style: 'subHeader'
+         },
+         { text: '\n' },
 
-        { text: '\n\n' },
+         // Información General: Layout de 2 columnas tipo tarjeta
+         {
+            columns: [
+                // Columna Izquierda: Solicitante
+                {
+                    width: '*',
+                    stack: [
+                        { text: 'INFORMACIÓN DEL SOLICITANTE', style: 'cardTitle' },
+                        {
+                            table: {
+                                widths: ['35%', '65%'],
+                                body: [
+                                    [{ text: 'Solicitante:', style: 'label' }, { text: solicitud.solicitante?.name || 'N/A', style: 'value' }],
+                                    [{ text: 'Establecimiento:', style: 'label' }, { text: solicitud.establecimiento?.name || 'N/A', style: 'value' }],
+                                    [{ text: 'Fecha Solicitud:', style: 'label' }, { text: new Date(solicitud.fecha_solicitud).toLocaleDateString('es-CL'), style: 'value' }]
+                                ]
+                            },
+                            layout: 'noBorders'
+                        }
+                    ],
+                    style: 'infoCard'
+                },
+                // Columna Derecha: Estado
+                {
+                    width: '*',
+                    stack: [
+                        { text: 'ESTADO Y PRESUPUESTO', style: 'cardTitle' },
+                        {
+                            table: {
+                                widths: ['40%', '60%'],
+                                body: [
+                                    [{ text: 'Estado Actual:', style: 'label' }, { text: solicitud.estadoSolicitud?.nombre || 'N/A', style: 'statusValue', color: '#0a7d28' }],
+                                    [{ text: 'Monto Estimado:', style: 'label' }, { text: `$ ${Number(solicitud.monto_estimado).toLocaleString('es-CL')}`, style: 'moneyValue' }]
+                                ]
+                            },
+                            layout: 'noBorders'
+                        }
+                    ],
+                    style: 'infoCard'
+                }
+            ],
+            columnGap: 20,
+            margin: [0, 0, 0, 15]
+         },
 
         // Detalles de la Solicitud
         { text: 'DETALLES DE LA SOLICITUD', style: 'sectionHeaderBox' },
           {
             table: {
-              widths: ['30%', '*'],
+              widths: ['25%', '*'],
               body: [
-                [{ text: 'Materia', style: 'tableHeader' }, solicitud.materia_solicitud || ''],
-                [{ text: 'Fundamentos', style: 'tableHeader' }, solicitud.fundamentos_solicitud || ''],
-                [{ text: 'Fondo', style: 'tableHeader' }, solicitud.fondo?.nombre || ''],
-                [{ text: 'Modalidad', style: 'tableHeader' }, solicitud.modalidad?.nombre || ''],
-                [{ text: 'PME', style: 'tableHeader' }, solicitud.pme?.descripcionAccion || 'N/A'],
+                [{ text: 'Materia', style: 'tableLabel' }, { text: solicitud.materia_solicitud || '', style: 'tableValue' }],
+                [{ text: 'Fundamentos', style: 'tableLabel' }, { text: solicitud.fundamentos_solicitud || '', style: 'tableValue' }],
+                [{ text: 'Fondo', style: 'tableLabel' }, { text: solicitud.fondo?.nombre || '', style: 'tableValue' }],
+                [{ text: 'Modalidad', style: 'tableLabel' }, { text: solicitud.modalidad?.nombre || '', style: 'tableValue' }],
+                [{ text: 'PME', style: 'tableLabel' }, { text: solicitud.pme?.descripcionAccion || 'N/A', style: 'tableValue' }],
               ]
             },
             layout: {
-              fillColor: (row, node, col) => col === 0 ? '#f7f8fb' : null,
-              hLineWidth: () => 0.8,
+              fillColor: (row, node, col) => col === 0 ? '#f4f6f9' : null,
+              hLineWidth: (i, node) => 1,
               vLineWidth: () => 0,
-              hLineColor: () => '#ddd'
-            }
+              hLineColor: () => '#e0e0e0'
+            },
+            margin: [0, 0, 0, 15]
           },
-        { text: '\n\n' },
 
-        // Convenio Marco y Área Revisora
+        // Información Adicional (Helpers)
         ...this.buildAdditionalInfo(solicitud),
-        { text: '\n\n' },
+        { text: '\n' },
 
-        // Archivos Adjuntos
+        // Archivos Adjuntos (Helpers)
         ...this.buildAttachmentsSection(solicitud),
-        { text: '\n\n' },
+        { text: '\n' },
 
-        // Cuentas Presupuestarias
+        // Cuentas Presupuestarias (Helpers)
         { text: 'IMPUTACIÓN PRESUPUESTARIA', style: 'sectionHeaderBox' },
         this.buildCuentasTable(solicitud),
         { text: '\n\n' },
 
-        // Información de Compras (si existe)
+        // Información de Compras (Helpers)
         ...this.buildPurchaseInfo(solicitud),
 
-        // Observaciones del Área
+        // Observaciones (Helpers)
         ...this.buildObservacionesSection(solicitud),
 
-        // Historial de Aprobaciones
+        // Aprobaciones (Helpers)
         { text: 'HISTORIAL DE APROBACIONES', style: 'sectionHeaderBox' },
         this.buildAprobacionesInfo(solicitud),
       ],
       styles: {
         mainHeader: {
-          fontSize: 22,
+          fontSize: 18,
           bold: true,
           color: '#003e7e',
-          margin: [0, 0, 0, 10]
+          margin: [0, 0, 0, 5]
         },
         subHeader: {
           fontSize: 11,
-          color: '#666',
+          color: '#555',
           italics: true,
-          margin: [0, -8, 0, 20]
+          margin: [0, 0, 0, 10]
         },
-        
-        // Sección tipo card con borde
-        cardSectionTitle: {
+        cardTitle: {
           fontSize: 10,
           bold: true,
           color: '#003e7e',
-          margin: [0, 0, 0, 10],
           decoration: 'underline',
-          decorationStyle: 'solid',
-          decorationColor: '#003e7e'
+          margin: [0, 0, 0, 5]
         },
-        
-        cardBox: {
-          margin: [0, 5, 0, 15],
-          border: [false, false, false, false]
+        infoCard: {
+          margin: [0, 5, 0, 5],
+          pad: 5
         },
-
         sectionHeaderBox: {
           fontSize: 11,
           bold: true,
           color: 'white',
           fillColor: '#003e7e',
-          margin: [0, 15, 0, 10],
-          padding: [8, 6],
+          margin: [0, 10, 0, 5],
+          padding: [8, 4]
         },
-
         label: {
-          bold: true,
           fontSize: 9,
-          color: '#003e7e',
-          margin: [0, 2, 5, 2]
+          bold: true,
+          color: '#444'
         },
-
+        value: {
+          fontSize: 9,
+          color: '#000'
+        },
+        statusValue: {
+          fontSize: 9,
+          bold: true
+        },
+        moneyValue: {
+          fontSize: 10,
+          bold: true,
+          color: '#003e7e'
+        },
+        tableLabel: {
+            fontSize: 9,
+            bold: true,
+            color: '#003e7e',
+            margin: [5, 2]
+        },
+        tableValue: {
+            fontSize: 9,
+            margin: [5, 2],
+            color: '#333'
+        },
+        // Estilos usados por los helpers (Legacy support)
         tableHeader: {
           bold: true,
-          fontSize: 10,
+          fontSize: 9,
           fillColor: '#e9eef5',
           color: '#003e7e',
-          margin: [5, 5, 5, 5]
+          margin: [4, 4, 4, 4]
         },
-
         tableCell: {
-          fontSize: 10,
-          margin: [5, 5, 5, 5]
+          fontSize: 9,
+          margin: [4, 4, 4, 4]
         },
-
         approvalItem: {
-          fontSize: 10,
-          margin: [0, 3, 0, 3]
+          fontSize: 9,
+          margin: [0, 2, 0, 2],
+          color: '#333'
         }
       },
       defaultStyle: {
         font: 'Roboto',
         fontSize: 10,
         lineHeight: 1.3
-      },
-
+      }
     };
 
     return new Promise((resolve, reject) => {

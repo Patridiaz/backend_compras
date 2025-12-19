@@ -16,6 +16,10 @@ export class UpdateCompradorDto {
   @IsOptional()
   @IsString()
   comentarios_orden_compra?: string; // <-- AÑADIR
+  
+  @IsOptional()
+  @IsString()
+  monto_final_compra?: string; // <-- AÑADIR
 
   @IsOptional()
   @IsString()
