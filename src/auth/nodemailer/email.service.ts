@@ -1,21 +1,38 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import * as fs from 'fs';
+import { join } from 'path';
 
 @Injectable()
-export class EmailService {
+export class EmailService implements OnModuleInit {
   private transporter: nodemailer.Transporter;
 
-  constructor() {
+  constructor(private configService: ConfigService) {
     // Configurar el "Transporter" (el servidor SMTP)
     this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '465'),
+      host: (this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com').trim(),
+      port: parseInt((this.configService.get<string>('SMTP_PORT') || '465').trim()),
       secure: true, // true para 465, false para otros puertos como 587
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user: (this.configService.get<string>('SMTP_USER') || '').trim(),
+        pass: (this.configService.get<string>('SMTP_PASS') || '').trim(),
       },
     });
+  }
+
+  async onModuleInit() {
+    const logPath = join(process.cwd(), 'email_debug.log');
+    const log = (msg: string) => fs.appendFileSync(logPath, `[${new Date().toISOString()}] [EmailService] ${msg}\n`);
+    
+    try {
+      await this.transporter.verify();
+      log('Servidor SMTP verificado y listo.');
+      console.log('✅ [EmailService] Servidor SMTP verificado y listo.');
+    } catch (error) {
+      log(`Error al verificar conexión SMTP: ${error.message}`);
+      console.error('❌ [EmailService] Error al verificar conexión SMTP:', error);
+    }
   }
 
   /**
@@ -25,8 +42,12 @@ export class EmailService {
    * @param htmlContent - Contenido HTML del correo (desde una plantilla)
    */
   async sendNotification(toEmail: string, subject: string, htmlContent: string): Promise<boolean> {
+    const logPath = join(process.cwd(), 'email_debug.log');
+    const log = (msg: string) => fs.appendFileSync(logPath, `[${new Date().toISOString()}] [EmailService] ${msg}\n`);
+    
+    const smtpUser = (this.configService.get<string>('SMTP_USER') || '').trim();
     const mailOptions = {
-      from: `"Sistema de Compras" <${process.env.SMTP_USER}>`,
+      from: `"Sistema de Compras" <${smtpUser}>`,
       to: toEmail,
       subject: subject,
       html: htmlContent,

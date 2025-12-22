@@ -69,7 +69,10 @@ export class SolicitudesService {
 
   // Helper para enviar correo
   private async notifyStatusChange(solicitud: SolicitudCompra, areaAccion?: string, motivo?: string): Promise<void> {
-    console.log(`[EMAIL] notifyStatusChange called for solicitud #${solicitud.id}, status: ${solicitud.estadoSolicitud?.id}`);
+    const logPath = join(process.cwd(), 'email_debug.log');
+    const log = (msg: string) => fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`);
+    
+    log(`notifyStatusChange called for solicitud #${solicitud.id}, status: ${solicitud.estadoSolicitud?.id}`);
     
     const { id, numero_solicitud, estadoSolicitud, solicitante, establecimiento, compradorAsignado, finAsignado, materia_solicitud, fecha_solicitud, fondo, modalidad } = solicitud;
     const newStatusId = estadoSolicitud.id;
@@ -200,6 +203,7 @@ export class SolicitudesService {
             break;
 
         default:
+            log(`Status ID ${newStatusId} not handled in notifyStatusChange switch.`);
             return; // No enviar correo
     }
 
@@ -216,16 +220,20 @@ export class SolicitudesService {
         // Ajustamos el saludo para cada uno si se quiere personalizar más, 
         // pero por simplicidad usamos el bodyHtml genérico o lo personalizamos mínimamente arriba.
         
-        console.log(`[EMAIL] Sending email to: ${dest.email}, subject: ${emailData.subject}`);
+        log(`Sending email to: ${dest.email}, subject: ${emailData.subject}`);
         
-        await this.emailService.sendNotification(
-            dest.email, 
-            emailData.subject, 
-            generateEmailHtml({
-                ...emailData,
-                // Podríamos personalizar el título o algo específico aquí si fuera necesario
-            })
-        );
+        try {
+            const success = await this.emailService.sendNotification(
+                dest.email, 
+                emailData.subject, 
+                generateEmailHtml({
+                    ...emailData,
+                })
+            );
+            log(`Email sent to ${dest.email}: ${success ? 'SUCCESS' : 'FAILED'}`);
+        } catch (error) {
+            log(`CRITICAL ERROR sending email to ${dest.email}: ${error.message}`);
+        }
     }
   }
 
