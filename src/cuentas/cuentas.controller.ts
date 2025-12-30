@@ -57,9 +57,9 @@ export class CuentasController {
     // Validar Rol (Si no tienes un decorador @Roles)
     const roles = req.user.roles || [];
     const esFinanzas = roles.some((r: any) => 
-        (typeof r === 'string' && r === 'finanzas') || 
-        (typeof r === 'object' && r.nombre === 'finanzas') ||
-        (typeof r === 'object' && r.id === 3) // Asumiendo ID 3 es finanzas, ajusta según tu BD
+        (typeof r === 'string' && r === 'FINANZAS') || 
+        (typeof r === 'object' && r.nombre === 'FINANZAS') ||
+        (typeof r === 'object' && r.id === 6) // Asumiendo ID 6 es finanzas, ajusta según tu BD
     );
     
     // Permitir también al Admin ver esto
