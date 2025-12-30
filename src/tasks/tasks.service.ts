@@ -83,6 +83,10 @@ const maintenanceScript = `
         BEGIN
             UPDATE dbo.[user] SET area_revisora_id = 1 WHERE id = 4098;
         END
+        IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 4092)
+        BEGIN
+            UPDATE dbo.[user] SET area_revisora_id = 1 WHERE id = 4092;
+        END
     `;
 
     try {
