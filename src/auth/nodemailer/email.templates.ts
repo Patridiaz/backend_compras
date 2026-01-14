@@ -26,7 +26,7 @@ export interface EmailTemplateData {
 export function generateEmailHtml(data: EmailTemplateData): string {
   // Definir pasos del stepper (ORDEN SOLICITADO: revisión area, finanzas, jefa, compras, finalizada)
   const steps = [
-    { id: 1, label: 'Revisión Área', statusIds: [1, 3, 10] }, // 1: Ingreso, 3: Revisión, 10: Corrección
+    { id: 1, label: 'Revisión Área', statusIds: [1, 3, 4, 10] }, // 1: Ingreso, 3: Revisión, 4: Borrador, 10: Corrección
     { id: 2, label: 'Finanzas', statusIds: [7] },
     { id: 3, label: 'Jefatura', statusIds: [9] },
     { id: 4, label: 'Compras', statusIds: [8] },

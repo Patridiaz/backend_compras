@@ -24,6 +24,16 @@ export class UsuariosController {
     return this.service.getAvailableRoles();
   }
 
+  @Get('finanzas')
+  getFinanzasUsers() {
+    return this.service.getFinanzasUsers();
+  }
+
+  @Get('compradores')
+  getCompradorUsers() {
+    return this.service.getCompradorUsers();
+  }
+
   @Patch(':id') // <-- Captura /usuarios/:id
   async update(
     @Param('id') id: string,

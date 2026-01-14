@@ -103,10 +103,13 @@ export class SolicitudesService {
     // 1. Lógica de Destinatarios y Contenido
     switch (newStatusId) {
         case 1: // Ingresada (Solo solicitante)
+        case 4: // Borrador (Solo solicitante)
             destinatarios.push({ email: solicitante.email, name: solicitante.name });
-            emailData.headerColor = '#28a745';
-            emailData.title = `✅ Solicitud N°${numero_solicitud} Ingresada`;
-            emailData.bodyHtml = `<p>Hola <strong>${solicitante.name}</strong>, su solicitud para <strong>${solicitud.materia_solicitud}</strong> ha sido ingresada correctamente. Pronto será revisada.</p>`;
+            emailData.headerColor = '#6c757d'; // Color neutro para borrador/ingreso inicial
+            emailData.title = newStatusId === 4 ? `📝 Solicitud N°${numero_solicitud} Guardada como Borrador` : `✅ Solicitud N°${numero_solicitud} Ingresada`;
+            emailData.bodyHtml = newStatusId === 4 
+                ? `<p>Hola <strong>${solicitante.name}</strong>, su solicitud para <strong>${solicitud.materia_solicitud}</strong> ha sido guardada como borrador. Recuerde enviarla a revisión cuando esté lista.</p>`
+                : `<p>Hola <strong>${solicitante.name}</strong>, su solicitud para <strong>${solicitud.materia_solicitud}</strong> ha sido ingresada correctamente. Pronto será revisada.</p>`;
             break;
         
         case 3: // En Revisión (Solicitante)
@@ -269,7 +272,7 @@ async create(
     estadoInicial, establecimiento, areaRevisora,
     fondo, modalidad, pme
   ] = await Promise.all([
-    this.estadosRepo.findOneBy({ id: 1 }), // Estado "Borrador"
+    this.estadosRepo.findOneBy({ id: 4 }), // Estado "Borrador" (ID 4 según BD)
     this.repo.manager.findOneBy(Establecimiento, { id: establecimiento_id }),
     this.areasRepo.findOneBy({ id: area_revisora_id }),
     this.repo.manager.findOneBy(Fondo, { id: fondo_id }),
@@ -470,10 +473,11 @@ async update(
             ...(pme_id !== undefined && { pme: { id: pme_id }as any }),
         };
 
-        // Si está en Borrador (4) o Ingresada (1), también debe avanzar a revisión.
-        if (existingSolicitud.estadoSolicitud.id === 1 || existingSolicitud.estadoSolicitud.id === 4) {
-             debeCambiarAEnRevision = true;
-        }
+         // Si está en Ingresada (1), avanzamos a revisión. 
+        // Si está en Borrador (4), se mantiene en borrador hasta que se envíe explícitamente.
+        if (existingSolicitud.estadoSolicitud.id === 1) {
+             debeCambiarAEnRevision = true;
+        }
     }
     // ==========================================================
 

@@ -146,4 +146,24 @@ async findByEmail(email: string): Promise<Usuario | null> {
     }); 
     return roles; // Devuelve RolUser[]
   }
+
+  async findUsersByRole(roleName: string): Promise<Usuario[]> {
+    return this.repo.find({
+      where: {
+        roles: {
+          nombre: roleName
+        }
+      },
+      relations: ['roles'],
+      order: { name: 'ASC' }
+    });
+  }
+
+  async getFinanzasUsers(): Promise<Usuario[]> {
+    return this.findUsersByRole('FINANZAS');
+  }
+
+  async getCompradorUsers(): Promise<Usuario[]> {
+    return this.findUsersByRole('COMPRADOR');
+  }
 }
