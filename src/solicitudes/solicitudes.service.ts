@@ -311,7 +311,7 @@ async create(
     ...otrosDatos,
     numero_solicitud: folioGenerado, // <-- AHORA ASIGNADO ANTES DE GUARDAR
     solicitante: usuarioSolicitante,
-    estadoSolicitud: estadoInicial,
+    estadoSolicitud: estadoInicial, // Debería ser ID 4 (Borrador)
     establecimiento,
     areaRevisora,
     fondo,
@@ -332,6 +332,8 @@ async create(
 
   // 6. Creamos y guardamos la entidad final en UNA SOLA SENTENCIA
   const entity = this.repo.create(data);
+  // Refuerzo explícito del estado Borrador (ID 4)
+  entity.estadoSolicitud = estadoInicial; 
   const saved = await this.repo.save(entity);
   
   // [NOTIFICACIÓN] - Cargamos la solicitud completa con relaciones para el email
@@ -554,8 +556,8 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
     if (solicitud.solicitante.id !== usuarioSolicitante.id) {
       throw new ForbiddenException('No tienes permiso para realizar esta acción.');
     }
-    // El estado inicial es 1 ("Ingresada"), el borrador es 4. Asumo 1 como el primer paso.
-    if (solicitud.estadoSolicitud.id !== 1 && solicitud.estadoSolicitud.id !== 4) { 
+     // El estado inicial ahora es 4 ("Borrador"), mantenemos 1 por compatibilidad.
+     if (solicitud.estadoSolicitud.id !== 1 && solicitud.estadoSolicitud.id !== 4) { 
       throw new BadRequestException('Esta solicitud ya ha sido enviada a revisión.');
     }
 
