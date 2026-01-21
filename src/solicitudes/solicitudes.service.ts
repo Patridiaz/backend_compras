@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import OpenAI from "openai";
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { SolicitudCompra } from './entities/solicitud-compra.entity';
@@ -37,6 +38,8 @@ import { EmailService } from 'src/auth/nodemailer/email.service';
 
 @Injectable()
 export class SolicitudesService {
+  private openai: OpenAI;
+
   constructor(
     @InjectRepository(SolicitudCompra) private readonly repo: Repository<SolicitudCompra>,
     @InjectRepository(Usuario) private readonly usuarioRepo: Repository<Usuario>,
@@ -47,7 +50,20 @@ export class SolicitudesService {
     @InjectRepository(SolicitudCuentaPresupuestaria) private readonly solicitudCuentaRepo: Repository<SolicitudCuentaPresupuestaria>,
     @InjectRepository(CentroCosto) private readonly centroCostoRepo: Repository<CentroCosto>,
     private readonly emailService: EmailService,
-  ) {}
+  ) {
+    // Inicializar OpenAI
+    const apiKey = process.env.OPENAI_API_KEY;
+    console.log(`[OpenAI] Configurando con API Key: ${apiKey ? apiKey.substring(0, 5) + '...' + apiKey.substring(apiKey.length - 4) : 'NO ENCONTRADA'}`);
+    
+    this.openai = new OpenAI({
+      apiKey: apiKey || '',
+    });
+  }
+
+
+
+
+
 
 
   // Helper para obtener toda la info necesaria para el correo
@@ -240,6 +256,45 @@ export class SolicitudesService {
     }
   }
 
+  async optimizeFundamentos(fundamentos: string): Promise<{ fundamentos_optimizada: string }> {
+    if (!fundamentos) throw new BadRequestException("El campo de fundamentos es requerido.");
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `Actúa como un Experto en Gestión Pública y Derecho Administrativo.
+              Tu tarea es reescribir la justificación ("Fundamentos") de una solicitud de compra.
+              
+              Objetivos:
+              1. Elevar el tono a un lenguaje formal, técnico y administrativo.
+              2. Justificar la necesidad enfatizando la continuidad operativa o el beneficio institucional.
+              3. Corregir ortografía y redacción.
+              4. Mantener la idea original sin inventar cifras ni fechas.
+              5. La extensión debe ser de 1 o 2 párrafos concisos.
+              
+              Salida: Solo devuelve el texto mejorado, sin introducciones ni comillas.`
+          },
+          {
+            role: "user",
+            content: fundamentos
+          }
+        ],
+        temperature: 0.7,
+      });
+
+      const text = response.choices[0].message?.content || fundamentos;
+      return { fundamentos_optimizada: text.trim() };
+    } catch (error) {
+      console.error("Error conectando con OpenAI:", error);
+      // Fallback: devolver el texto original para no bloquear el flujo
+      return { fundamentos_optimizada: fundamentos };
+    }
+  }
+
+
 
 
 
@@ -287,23 +342,30 @@ async create(
   if (!fondo) throw new BadRequestException('El ID del fondo no es válido.');
   if (!modalidad) throw new BadRequestException('El ID de la modalidad no es válido.');
   
-  // =========================================================================
-  // 4. GENERACIÓN DEL NÚMERO DE SOLICITUD (CORRECCIÓN CRÍTICA)
-  // Generamos el número antes del SAVE, basado en el máximo ID actual + 1.
-  // Esto asume que el ID autoincremental de SQL Server será el siguiente número.
-  // =========================================================================
+  // 4. GENERACIÓN DEL NÚMERO DE SOLICITUD (CORRELATIVO DE NEGOCIO DINÁMICO)
+  // Generamos el prefijo basado en el año actual (ej: COMPRAS26-)
+  const yearSuffix = new Date().getFullYear().toString().slice(-2);
+  const prefijo = `COMPRAS${yearSuffix}-`;
   
-  // Buscar el máximo ID existente en la tabla
-  const result = await this.repo
-    .createQueryBuilder('solicitudes_compra')
-    .select('MAX(solicitudes_compra.id)', 'maxId')
-    .getRawOne();
-    
-  const ultimoId = result?.maxId || 0;
-  const proximoId = ultimoId + 1; // Estimación del ID que tendrá el nuevo registro
+  const lastSolicitud = await this.repo
+    .createQueryBuilder('solicitud')
+    .select('solicitud.numero_solicitud')
+    .where('solicitud.numero_solicitud LIKE :prefijo', { prefijo: `${prefijo}%` })
+    .orderBy('solicitud.numero_solicitud', 'DESC')
+    .getOne();
 
-  const prefijo = 'COMPRAS26-';
-  const numeroCorrelativo = String(proximoId).padStart(5, '0');
+  let proximoNumero = 1;
+  if (lastSolicitud && lastSolicitud.numero_solicitud) {
+    const partes = lastSolicitud.numero_solicitud.split('-');
+    if (partes.length > 1) {
+      const ultimoNumero = parseInt(partes[1], 10);
+      if (!isNaN(ultimoNumero)) {
+        proximoNumero = ultimoNumero + 1;
+      }
+    }
+  }
+
+  const numeroCorrelativo = String(proximoNumero).padStart(5, '0');
   const folioGenerado = prefijo + numeroCorrelativo;
 
   // 5. Creamos el objeto final con los OBJETOS COMPLETOS
@@ -822,22 +884,31 @@ async updateFinanzas(id: number, dto: UpdateFinanzasDto): Promise<SolicitudCompr
   }
 
   // 7️⃣ Cambiar el estado al siguiente paso del flujo (Pendiente Aprobación Jefa DEM)
-  // 7️⃣ Cambiar el estado: si es fraccionada cierra en 11, si no avanza a 9 (Jefa DEM)
+  // 7️⃣ Cambiar el estado: si es fraccionada cierra en 11, si no avanza a 8 (Compras)
   
-  // [FIX] Priorizar el flag de la BD o el del DTO si es true. 
-  // Evitamos que un DTO con 'esFraccionada: false' accidental sobreescriba un 'true' de la BD (race condition con evaluarFraccionamiento).
   if (dto.esFraccionada) {
       solicitudActual.fraccionamiento_compra = true;
   }
 
   const isFraccionada = solicitudActual.fraccionamiento_compra === true;
-  const nuevoEstadoId = isFraccionada ? 11 : 9;
+  const nuevoEstadoId = isFraccionada ? 11 : 9; // <-- CAMBIADO: A Jefa DEM (ID 9)
   
   const estadoSiguiente = await this.estadosRepo.findOneBy({ id: nuevoEstadoId });
   if (!estadoSiguiente) {
     throw new InternalServerErrorException(`El estado ID ${nuevoEstadoId} no fue encontrado.`);
   }
   dataToUpdate.estadoSolicitud = estadoSiguiente;
+
+  // 7.1 Registrar comentario de Finanzas si existe
+  if (dto.fin_analisis && solicitudActual.finAsignado) {
+      const observacion = this.obsRepo.create({
+          observacion: `[FINANZAS] ${dto.fin_analisis}`,
+          usuario: solicitudActual.finAsignado, 
+          areaRevisora: solicitudActual.areaRevisora,
+          solicitud: solicitudActual,
+      });
+      await this.obsRepo.save(observacion);
+  }
 
   // 8️⃣ Fusionar y guardar
   this.repo.merge(solicitudActual, dataToUpdate);
@@ -905,28 +976,36 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
   }
 
   // ✅ CORRECCIÓN: Cargamos el estado actual para la validación
-  const currentSolicitud = await this.repo.findOne({ where: { id }, relations: ['estadoSolicitud'] });
+  const currentSolicitud = await this.repo.findOne({ where: { id }, relations: ['estadoSolicitud', 'compradorAsignado', 'areaRevisora'] });
   if (!currentSolicitud) throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
   
 
-  const estadoPendienteDEM = await this.estadosRepo.findOneBy({ id: 2 });
-  if (!estadoPendienteDEM) {
+   const estadoFinalizada = await this.estadosRepo.findOneBy({ id: 2 }); // <-- CAMBIADO: De 9 a 2 (Finalizada)
+   if (!estadoFinalizada) {
       throw new InternalServerErrorException('El estado "Finalizada" (ID 2) no fue encontrado.');
-  }
-  
-  // Validar estado
-  // ✅ CORRECCIÓN: Uso de operador ?. para evitar TypeError (currentSolicitud.estadoSolicitud?.id)
-  if (currentSolicitud.estadoSolicitud?.id !== 8) { 
-        throw new BadRequestException('La solicitud debe estar en estado "Pendiente Aprobación Compras" (ID 8) para que el comprador actualice.');
-  }
+   }
+   
+   // Validar estado
+   if (currentSolicitud.estadoSolicitud?.id !== 8) { 
+         throw new BadRequestException('La solicitud debe estar en estado "Pendiente Aprobación Compras" (ID 8) para que el comprador actualice.');
+   }
 
-  // 3. Asigna el nuevo estado a la solicitud
-  solicitud.estadoSolicitud = estadoPendienteDEM; 
-  // Opcional: Desasignar si la lógica es que el comprador ya terminó.
-  // solicitud.compradorAsignado = null; 
+   // 3. Asigna el nuevo estado a la solicitud
+   solicitud.estadoSolicitud = estadoFinalizada; 
 
-  // 5. Guarda la solicitud con los datos del comprador Y el nuevo estado
-  const saved = await this.repo.save(solicitud);
+   // 3.1 Registrar comentario del Comprador si existe
+   if (dto.comentarios_orden_compra && currentSolicitud.compradorAsignado) {
+       const observacion = this.obsRepo.create({
+           observacion: `[COMPRAS] ${dto.comentarios_orden_compra}`,
+           usuario: currentSolicitud.compradorAsignado,
+           areaRevisora: currentSolicitud.areaRevisora,
+           solicitud: currentSolicitud,
+       });
+       await this.obsRepo.save(observacion);
+   }
+
+   // 5. Guarda la solicitud con los datos del comprador Y el nuevo estado
+   const saved = await this.repo.save(solicitud);
   
   // [NOTIFICACIÓN]
   const fullSolicitud = await this.findOne(saved.id);
@@ -973,7 +1052,7 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
     } else {
         // CASO NO: No hay fraccionamiento -> Sigue al siguiente proceso
         // Asumiendo que el siguiente paso es la revisión de Jefatura (ID 9)
-        solicitud.estadoSolicitud = { id: 2 } as any; // Pendiente Jefa DEM
+        solicitud.estadoSolicitud = { id: 8 } as any; // Sigue en Compras para que el comprador complete los datos
         
         // Opcional: Asignar fecha de paso a Jefa DEM si lo usas
         // solicitud.jefaDemFecha = new Date();
@@ -1026,7 +1105,7 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
     } else {
         // CASO NO: No hay fraccionamiento -> Sigue al siguiente proceso
         // Asumiendo que el siguiente paso es la revisión de Jefatura (ID 9)
-        solicitud.estadoSolicitud = { id: 9 } as any; // Pendiente Jefa DEM
+        solicitud.estadoSolicitud = { id: 9 } as any; // Va a Jefa DEM
         
         // Opcional: Asignar fecha de paso a Jefa DEM si lo usas
         // solicitud.jefaDemFecha = new Date();
@@ -1065,30 +1144,44 @@ async findForJefaDemQueue(): Promise<SolicitudCompra[]> {
 async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario): Promise<SolicitudCompra> {
     const solicitud = await this.repo.findOne({ 
         where: { id: solicitudId }, 
-        relations: ['estadoSolicitud'] 
+        relations: ['estadoSolicitud', 'areaRevisora'] 
     });
     if (!solicitud) {
         throw new NotFoundException('Solicitud no encontrada.');
     }
+    if (!solicitud) {
+        throw new NotFoundException('Solicitud no encontrada.');
+    }
 
     // El estado debe ser Pendiente Aprobación Jefa DEM (ID 9)
-    if (solicitud.estadoSolicitud.id !== 9) {
-        throw new BadRequestException('Esta solicitud no está pendiente de aprobación por la Jefa DEM.');
-    }
-    
-    const estadoAprobado = await this.estadosRepo.findOneBy({ id: 8 }); 
-    if (!estadoAprobado) {
-        throw new InternalServerErrorException('El estado "Pendiente Aprobación Compras" (ID 8) no fue encontrado.');    
+    if (solicitud.estadoSolicitud.id !== 9) {
+        throw new BadRequestException('Esta solicitud no está pendiente de aprobación por la Jefa DEM.');
     }
-    
-    solicitud.estadoSolicitud = estadoAprobado;
+        const estadoCompras = await this.estadosRepo.findOneBy({ id: 8 }); // <-- CAMBIADO: De 2 a 8 (Compras)
+    if (!estadoCompras) {
+        throw new InternalServerErrorException('El estado "Pendiente Compras" (ID 8) no fue encontrado.');    
+    }
+    
+    solicitud.estadoSolicitud = estadoCompras;
 
-    // ✅ Registro de la decisión final
-    solicitud.jefaDemAsignado = usuarioJefaDem;
-    solicitud.jefaDemAprobacion = estadoAprobado;
-    solicitud.jefaDemFecha = new Date();
-    
-    await this.repo.save(solicitud);
+    // ✅ Registro de la decisión final
+    solicitud.jefaDemAsignado = usuarioJefaDem;
+    // Asumiendo que 'estadoAprobado' se refiere a un estado de aprobación general, no al estado final.
+    // Si se necesita un estado específico para "Aprobado por Jefa DEM", se debería crear.
+    // Por ahora, se mantiene la lógica original de asignar el estado de destino como aprobación.
+    solicitud.jefaDemAprobacion = estadoCompras; // Asigna el estado al que se mueve como "aprobación"
+    solicitud.jefaDemFecha = new Date();
+
+     // Registrar comentario de aprobación
+     const observacion = this.obsRepo.create({
+         observacion: `[APROBACIÓN J.DEM] Solicitud aprobada y finalizada correctamente.`,
+         usuario: usuarioJefaDem,
+         areaRevisora: solicitud.areaRevisora,
+         solicitud: solicitud,
+     });
+     await this.obsRepo.save(observacion);
+     
+     await this.repo.save(solicitud);
     
     // [NOTIFICACIÓN]
     const fullSolicitud = await this.findOne(solicitudId);
@@ -1101,51 +1194,84 @@ async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario): Promise<Soli
   async rechazarJefaDem(solicitudId: number, dto: RevisarSolicitudDto, usuarioJefaDem: Usuario): Promise<SolicitudCompra> {
     const solicitud = await this.repo.findOne({ 
         where: { id: solicitudId }, 
-        relations: ['areaRevisora', 'estadoSolicitud'] // Incluimos estadoSolicitud para la validación
+        relations: ['areaRevisora', 'estadoSolicitud'] 
     });
     
     if (!solicitud) {
         throw new NotFoundException('Solicitud no encontrada.');
     }
     
-    if (!dto.observacion || dto.observacion.trim().length < 10) {
+    if (!dto.observacion || dto.observacion.trim().length < 5) { // Bajamos a 5 por flexibilidad
         throw new BadRequestException('Se requiere una observación detallada para rechazar la solicitud.');
     }
 
-    // El estado debe ser Pendiente Aprobación Jefa DEM (ID 9)
     if (solicitud.estadoSolicitud.id !== 9) {
         throw new BadRequestException('Esta solicitud no está pendiente de aprobación por la Jefa DEM.');
     }
 
-    // 1. Registro de observación
-    // CORRECCIÓN: Usamos 'usuarioJefaDem' directamente para evitar el error de tipado y la búsqueda redundante.
     const observacion = this.obsRepo.create({
         observacion: `[RECHAZO J.DEM] ${dto.observacion}`,
-        usuario: usuarioJefaDem, // Objeto Usuario garantizado, resuelve el error.
+        usuario: usuarioJefaDem, 
         areaRevisora: solicitud.areaRevisora,
         solicitud: solicitud,
     });
     await this.obsRepo.save(observacion);
 
-    // 2. Cambio de estado a "Rechazada" (ID 6)
     const estadoRechazado = await this.estadosRepo.findOneBy({ id: 6 });
     if (!estadoRechazado) {
         throw new InternalServerErrorException('El estado "Rechazada" (ID 6) no fue encontrado.');
     }
 
     solicitud.estadoSolicitud = estadoRechazado;
-
-    // ✅ Registro de la decisión final
     solicitud.jefaDemAsignado = usuarioJefaDem;
     solicitud.jefaDemAprobacion = estadoRechazado;
     solicitud.jefaDemFecha = new Date();
 
+    await this.repo.save(solicitud);
+    const fullSolicitud = await this.findOne(solicitudId);
+    this.notifyStatusChange(fullSolicitud, 'Jefa DEM', dto.observacion).catch(e => console.error('Error enviando correo Rechazar Jefa DEM:', e));
+    return fullSolicitud;
+  }
+
+  async devolverJefaAFinanzas(solicitudId: number, dto: DevolverSolicitudDto, usuarioJefaDem: Usuario): Promise<SolicitudCompra> {
+    const solicitud = await this.repo.findOne({ 
+        where: { id: solicitudId }, 
+        relations: ['areaRevisora', 'estadoSolicitud', 'finAsignado'] 
+    });
+    
+    if (!solicitud) {
+        throw new NotFoundException('Solicitud no encontrada.');
+    }
+    
+    if (solicitud.estadoSolicitud.id !== 9) {
+        throw new BadRequestException('Solo se pueden devolver solicitudes que están en aprobación de Jefatura (ID 9).');
+    }
+
+    // 1. Registro de observación
+    const observacion = this.obsRepo.create({
+        observacion: `[DEVOLUCIÓN J.DEM a FINANZAS] ${dto.observacion}`,
+        usuario: usuarioJefaDem,
+        areaRevisora: solicitud.areaRevisora,
+        solicitud: solicitud,
+    });
+    await this.obsRepo.save(observacion);
+
+    // 2. Cambio de estado a "Pendiente Finanzas" (ID 7)
+    const estadoFinanzas = await this.estadosRepo.findOneBy({ id: 7 });
+    if (!estadoFinanzas) {
+        throw new InternalServerErrorException('El estado "Pendiente Finanzas" (ID 7) no fue encontrado.');
+    }
+
+    solicitud.estadoSolicitud = estadoFinanzas;
+    // Mantenemos al analista asignado para que pueda corregir
+    solicitud.jefaDemAsignado = null;
+    solicitud.jefaDemAprobacion = null;
+    solicitud.jefaDemFecha = null;
 
     await this.repo.save(solicitud);
     
-    // [NOTIFICACIÓN]
     const fullSolicitud = await this.findOne(solicitudId);
-    this.notifyStatusChange(fullSolicitud, 'Jefa DEM', dto.observacion).catch(e => console.error('Error enviando correo Rechazar Jefa DEM:', e));
+    this.notifyStatusChange(fullSolicitud, 'Jefa DEM (Devolución a Finanzas)', dto.observacion).catch(e => console.error('Error enviando correo Devolver a Finanzas:', e));
     
     return fullSolicitud;
   }
@@ -1436,6 +1562,52 @@ async devolverAlSolicitante(
     await this.repo.update(id, updateData);
 
     // 5. Retornar la solicitud fresca
+    return this.findOne(id);
+  }
+
+  // =================================================================
+  // === Guardado previo ===
+  // =================================================================
+
+  /**
+   * Permite a un comprador guardar datos (OC, Licitación, etc.) sin cambiar el estado
+   * y sin liberar la asignación (se mantiene a su nombre).
+   */
+  async savePrevioComprador(
+    id: number, 
+    dto: UpdateCompradorDto, 
+    usuario: Usuario
+  ): Promise<SolicitudCompra> {
+    
+    const solicitud = await this.repo.findOne({
+      where: { id },
+      relations: ['estadoSolicitud', 'compradorAsignado']
+    });
+
+    if (!solicitud) {
+      throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
+    }
+
+    // 1. Validar estado
+    if (solicitud.estadoSolicitud.id !== 8) {
+      throw new BadRequestException('La solicitud no se encuentra en la etapa de Compras (ID 8).');
+    }
+
+    // 2. Validar que el usuario la tenga asignada
+    if (solicitud.compradorAsignado?.id !== usuario.id) {
+       throw new ForbiddenException('No puedes guardar cambios en una solicitud que no tienes asignada.');
+    }
+
+    // 3. Preparar datos de actualización
+    const updateData: any = {};
+    if (dto.orden_compra !== undefined) updateData.orden_compra = dto.orden_compra;
+    if (dto.numero_licitacion !== undefined) updateData.numero_licitacion = dto.numero_licitacion;
+    if (dto.comentarios_orden_compra !== undefined) updateData.comentarios_orden_compra = dto.comentarios_orden_compra;
+    if (dto.monto_final_compra !== undefined) updateData.monto_final_compra = dto.monto_final_compra;
+    
+    // 4. Ejecutar actualización parcial sin afectar relaciones
+    await this.repo.update(id, updateData);
+
     return this.findOne(id);
   }
 

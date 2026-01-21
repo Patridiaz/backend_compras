@@ -97,6 +97,12 @@ export class SolicitudesController {
             files
           );
     }
+    
+  @Post("ai-optimize-fundamentos")
+  async optimizeFundamentos(@Body("fundamentos") fundamentos: string) {
+    return this.service.optimizeFundamentos(fundamentos);
+  }
+
 
   
   @Get()
@@ -155,6 +161,15 @@ export class SolicitudesController {
     return this.service.updateComprador(Number(id), dto);
   }
 
+  @Patch(':id/compras/save-previo')
+  savePrevioComprador(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCompradorDto,
+    @Request() req,
+  ) {
+    return this.service.savePrevioComprador(id, dto, req.user as Usuario);
+  }
+
   @Post(':id/enviar-revision')
   enviarRevision(
     @Param('id') id: string,
@@ -206,21 +221,31 @@ export class SolicitudesController {
     return this.service.findForJefaDemQueue();
   }
 
-  @Post(':id/jefadem/aprobar')
-  aprobarJefaDem(@Param('id') id: string, @Request() req) {
-    // Mueve de Pendiente Jefa DEM (10) a Finalizada (9)
-    return this.service.aprobarJefaDem(Number(id), req.user);
-  }
-
-  @Post(':id/jefadem/rechazar')
-  rechazarJefaDem(
-    @Param('id') id: string,
-    @Body() dto: RevisarSolicitudDto,
-    @Request() req,
-  ) {
-    // Mueve de Pendiente Jefa DEM (10) a Rechazada (5)
-    return this.service.rechazarJefaDem(Number(id), dto, req.user);
-  }
+   @Post(':id/jefadem/aprobar')
+   aprobarJefaDem(@Param('id') id: string, @Request() req) {
+     // Mueve de Pendiente Jefa DEM (9) a Compras (8)
+     return this.service.aprobarJefaDem(Number(id), req.user);
+   }
+ 
+   @Post(':id/jefadem/rechazar')
+   rechazarJefaDem(
+     @Param('id') id: string,
+     @Body() dto: RevisarSolicitudDto,
+     @Request() req,
+   ) {
+     // Mueve de Pendiente Jefa DEM (9) a Rechazada (6)
+     return this.service.rechazarJefaDem(Number(id), dto, req.user);
+   }
+   
+   @Post(':id/jefadem/devolver-a-finanzas')
+   devolverJefaDemAFinanzas(
+     @Param('id') id: string,
+     @Body() dto: DevolverSolicitudDto,
+     @Request() req,
+   ) {
+     // Mueve de Pendiente Jefa DEM (9) a Finanzas (7)
+     return this.service.devolverJefaAFinanzas(Number(id), dto, req.user);
+   }
 
   @Post(':id/rechazar')
   rechazar(
