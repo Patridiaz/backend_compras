@@ -158,6 +158,9 @@ export class SolicitudCompra {
   @Column({ type: 'datetime', name: 'jefa_dem_fecha', nullable: true })
   jefaDemFecha: Date | null; // Nuevo
 
+  @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
+  jefa_observaciones: string | null;
+
   /* ===================== CAMPOS AREA REVISORA ===================== */
   
   @OneToMany(() => ObservacionArea, o => o.solicitud, { cascade: true })

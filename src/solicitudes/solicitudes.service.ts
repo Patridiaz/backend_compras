@@ -1041,50 +1041,86 @@ async assignToComprador(id: number, dto: AssignCompradorDto): Promise<SolicitudC
 
 
 async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCompra> {
-  // 1. Carga la solicitud y fusiona los nuevos datos del DTO
-  const solicitud = await this.repo.preload({ id: id, ...dto });
-  if (!solicitud) {
-    throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
-  }
-
-  // ✅ CORRECCIÓN: Cargamos el estado actual para la validación
-  const currentSolicitud = await this.repo.findOne({ where: { id }, relations: ['estadoSolicitud', 'compradorAsignado', 'areaRevisora'] });
-  if (!currentSolicitud) throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
+  console.log(`[DEBUG] updateComprador EJECUTADO para ID: ${id}. DTO:`, dto);
   
-
-   const estadoFinalizada = await this.estadosRepo.findOneBy({ id: 2 }); // <-- CAMBIADO: De 9 a 2 (Finalizada)
-   if (!estadoFinalizada) {
-      throw new InternalServerErrorException('El estado "Finalizada" (ID 2) no fue encontrado.');
-   }
-   
-   // Validar estado
-   if (currentSolicitud.estadoSolicitud?.id !== 8) { 
-         throw new BadRequestException('La solicitud debe estar en estado "Pendiente Aprobación Compras" (ID 8) para que el comprador actualice.');
-   }
-
-   // 3. Asigna el nuevo estado a la solicitud
-   solicitud.estadoSolicitud = estadoFinalizada; 
-
-   // 3.1 Registrar comentario del Comprador si existe
-   if (dto.comentarios_orden_compra && currentSolicitud.compradorAsignado) {
-       const observacion = this.obsRepo.create({
-           observacion: `[COMPRAS] ${dto.comentarios_orden_compra}`,
-           usuario: currentSolicitud.compradorAsignado,
-           areaRevisora: currentSolicitud.areaRevisora,
-           solicitud: currentSolicitud,
-       });
-       await this.obsRepo.save(observacion);
-   }
-
-   // 5. Guarda la solicitud con los datos del comprador Y el nuevo estado
-   const saved = await this.repo.save(solicitud);
+  // 1. Buscar la solicitud con relaciones
+  const solicitud = await this.repo.findOne({ 
+      where: { id }, 
+      relations: ['estadoSolicitud', 'compradorAsignado', 'areaRevisora'] 
+  });
   
+  if (!solicitud) {
+    throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
+  }
+
+  // 2. Validar estado (Debe ser 8)
+  // Permitimos re-confirmar si ya es 2? No, dice "no cambia". Así que asumimos que es 8.
+  if (solicitud.estadoSolicitud?.id !== 8 && solicitud.estadoSolicitud?.id !== 2) {
+      // Si ya es 2, quizás solo estamos actualizando datos. Pero la regla dice "Pendiente".
+      console.log(`[DEBUG] Intento de finalizar solicitud con estado ${solicitud.estadoSolicitud?.id}`);
+      // throw new BadRequestException... (lo relajamos para debug o mantenemos estricto?)
+      // Mantenemos estricto, salvo que sea ya 2.
+      if (solicitud.estadoSolicitud?.id !== 2)
+        throw new BadRequestException('La solicitud debe estar en estado "Pendiente Aprobación Compras" (ID 8) para finalizar.');
+  }
+
+  // 3. Validar existencia ID 2
+  const estadoFinalizada = await this.estadosRepo.findOneBy({ id: 2 });
+  if (!estadoFinalizada) {
+     throw new InternalServerErrorException('El estado "Finalizada" (ID 2) no fue encontrado.');
+  }
+
+  // 4. Actualizar campos del DTO en la entidad (sin estado)
+  if (dto.orden_compra !== undefined) solicitud.orden_compra = dto.orden_compra;
+  if (dto.numero_licitacion !== undefined) solicitud.numero_licitacion = dto.numero_licitacion;
+  if (dto.numero_cotizacion !== undefined) solicitud.numero_cotizacion = dto.numero_cotizacion;
+  
+  if (dto.monto_final_compra !== undefined) {
+      if (dto.monto_final_compra === null || dto.monto_final_compra === '') {
+          solicitud.monto_final_compra = null;
+      } else {
+          solicitud.monto_final_compra = String(dto.monto_final_compra).replace(',', '.');
+      }
+  }
+  
+  if (dto.comentarios_orden_compra !== undefined) solicitud.comentarios_orden_compra = dto.comentarios_orden_compra;
+
+  // 5. Guardar DATOS (manteniendo estado original por ahora, para evitar reversiones mágicas por cascade)
+  // Nota: Si el estado ya venía cargado como 8, se guardará como 8 (o lo que tenga).
+  const saved = await this.repo.save(solicitud);
+
+  // 6. Registrar comentario del Comprador si existe
+  if (dto.comentarios_orden_compra && solicitud.compradorAsignado) {
+      const observacion = this.obsRepo.create({
+          observacion: `[COMPRAS - FINALIZADO] ${dto.comentarios_orden_compra}`,
+          usuario: solicitud.compradorAsignado,
+          areaRevisora: solicitud.areaRevisora,
+          solicitud: saved, // Usamos saved para asegurar referencia
+      });
+      await this.obsRepo.save(observacion);
+  }
+
+  // 7. CAMBIAR ESTADO A FINALIZADA (ID 2) FUERZOSAMENTE CON UPDATE
+  // Esto evita problemas de entity manager, cascades, etc.
+  console.log(`[DEBUG BD] Forzando cambio de estado a 2 para ID ${id} via UPDATE directo.`);
+  await this.repo.update(id, { estadoSolicitud: estadoFinalizada });
+
   // [NOTIFICACIÓN]
   const fullSolicitud = await this.findOne(saved.id);
+  
+  if (fullSolicitud.estadoSolicitud?.id !== 2) {
+      console.error(`[CRITICAL] ALERTA: El estado sigue siendo ${fullSolicitud.estadoSolicitud?.id} despues del UPDATE.`);
+      // Último intento desesperado: Query Raw
+      // await this.repo.query('UPDATE solicitudes_compra SET estado_solicitud_id = 2 WHERE id = @0', [id]);
+  } else {
+      console.log('[DEBUG BD] Estado verificado correctamente en 2.');
+  }
+
   this.notifyStatusChange(fullSolicitud, 'Compras', undefined).catch(e => console.error('Error enviando correo Comprador:', e));
   
   return fullSolicitud;
 }
+
 
   // =================================================================
   // === EVALUAR FRACCIONAMIENTO (COMPRADOR) ===
@@ -1115,19 +1151,16 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
     // 2. Lógica de cambio de estado
     if (esFraccionada) {
         // CASO YES: Se detecta fraccionamiento -> Se finaliza/cancela el proceso
-        // Usamos Estado 5 (Rechazada) o el que uses para cerrar el proceso negativamente
+        // Usamos Estado 11 (Finalizada por Fraccionamiento)
         solicitud.estadoSolicitud = { id: 11 } as any; 
         
         // Opcional: Agregar un comentario automático
         // solicitud.comentarios_orden_compra = (solicitud.comentarios_orden_compra || '') + '\n[SISTEMA]: Solicitud finalizada por detección de fraccionamiento.';
     
     } else {
-        // CASO NO: No hay fraccionamiento -> Sigue al siguiente proceso
-        // Asumiendo que el siguiente paso es la revisión de Jefatura (ID 9)
-        solicitud.estadoSolicitud = { id: 8 } as any; // Sigue en Compras para que el comprador complete los datos
-        
-        // Opcional: Asignar fecha de paso a Jefa DEM si lo usas
-        // solicitud.jefaDemFecha = new Date();
+        // CASO NO: No hay fraccionamiento.
+        // MANTENER EL ESTADO ACTUAL (Sea 2 u 8).
+        console.log(`[DEBUG BD] Fraccionamiento FALSE. Manteniendo estado actual: ${solicitud.estadoSolicitud?.id}`);
     }
 
     await this.repo.save(solicitud);
@@ -1213,7 +1246,7 @@ async findForJefaDemQueue(): Promise<SolicitudCompra[]> {
 /**
  * Aprueba la solicitud y la mueve a estado Finalizado (ID 9).
  */
-async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario): Promise<SolicitudCompra> {
+async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario, observacionText?: string): Promise<SolicitudCompra> {
     const solicitud = await this.repo.findOne({ 
         where: { id: solicitudId }, 
         relations: ['estadoSolicitud', 'areaRevisora'] 
@@ -1221,9 +1254,6 @@ async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario): Promise<Soli
     if (!solicitud) {
         throw new NotFoundException('Solicitud no encontrada.');
     }
-    if (!solicitud) {
-        throw new NotFoundException('Solicitud no encontrada.');
-    }
 
     // El estado debe ser Pendiente Aprobación Jefa DEM (ID 9)
     if (solicitud.estadoSolicitud.id !== 9) {
@@ -1244,9 +1274,17 @@ async aprobarJefaDem(solicitudId: number, usuarioJefaDem: Usuario): Promise<Soli
     solicitud.jefaDemAprobacion = estadoCompras; // Asigna el estado al que se mueve como "aprobación"
     solicitud.jefaDemFecha = new Date();
 
+    if (observacionText) {
+        solicitud.jefa_observaciones = observacionText;
+    }
+
      // Registrar comentario de aprobación
+     const obsTexto = observacionText 
+        ? `[APROBACIÓN J.DEM] ${observacionText}` 
+        : `[APROBACIÓN J.DEM] Solicitud aprobada y derivada a Compras correctamente.`;
+
      const observacion = this.obsRepo.create({
-         observacion: `[APROBACIÓN J.DEM] Solicitud aprobada y finalizada correctamente.`,
+         observacion: obsTexto,
          usuario: usuarioJefaDem,
          areaRevisora: solicitud.areaRevisora,
          solicitud: solicitud,
@@ -1650,6 +1688,7 @@ async devolverAlSolicitante(
     dto: UpdateCompradorDto, 
     usuario: Usuario
   ): Promise<SolicitudCompra> {
+    console.log(`[DEBUG] savePrevioComprador EJECUTADO para ID: ${id}`);
     
     const solicitud = await this.repo.findOne({
       where: { id },

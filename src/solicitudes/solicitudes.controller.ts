@@ -222,9 +222,13 @@ export class SolicitudesController {
   }
 
    @Post(':id/jefadem/aprobar')
-   aprobarJefaDem(@Param('id') id: string, @Request() req) {
+   aprobarJefaDem(
+     @Param('id') id: string, 
+     @Request() req,
+     @Body() body: { observacion?: string }
+   ) {
      // Mueve de Pendiente Jefa DEM (9) a Compras (8)
-     return this.service.aprobarJefaDem(Number(id), req.user);
+     return this.service.aprobarJefaDem(Number(id), req.user, body.observacion);
    }
  
    @Post(':id/jefadem/rechazar')
