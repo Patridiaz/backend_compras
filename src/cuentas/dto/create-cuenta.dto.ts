@@ -14,4 +14,8 @@ export class CreateCuentaDto {
   @IsOptional() // Opcional si permites crear cuentas con monto 0 por defecto
   monto?: number;
 
+  @IsNumber()
+  @IsOptional()
+  periodo?: number;
+
 }

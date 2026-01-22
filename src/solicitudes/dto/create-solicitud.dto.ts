@@ -7,6 +7,7 @@ export class CreateSolicitudDto {
 
   @IsString() @Length(3, 255) materia_solicitud: string;
   @IsString() fundamentos_solicitud: string;
+  @IsOptional() @IsString() observaciones_considerar?: string;
 
   // MSSQL decimal -> usa string para evitar problemas de precisión
   @IsString() monto_estimado: string;

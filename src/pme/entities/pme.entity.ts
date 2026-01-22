@@ -20,6 +20,9 @@ export class Pme {
   @Column()
   descripcionAccion: string;
 
+  @Column({ type: 'int', default: 2026 }) // Año del PME (sistema parte desde 2026)
+  periodo: number;
+
   @ManyToOne(() => Establecimiento, (e) => e.pmes)
   @JoinColumn({ name: 'establecimiento_id' })
   establecimiento: Establecimiento;

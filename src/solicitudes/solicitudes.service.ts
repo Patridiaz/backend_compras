@@ -158,14 +158,82 @@ export class SolicitudesService {
              // A solicitante
              destinatarios.push({ email: solicitante.email, name: solicitante.name });
 
-             // A Comprador - COMENTADO POR SOLICITUD DE USUARIO (Solo solicitante)
-             /* if (compradorAsignado) {
+             if (compradorAsignado) {
+                // Si ya tiene asignado, notificar al específico
                 destinatarios.push({ email: compradorAsignado.email, name: compradorAsignado.name });
-                emailData.buttonLink = `${baseLink}/compras`; // Link para acción
+                emailData.buttonLink = `${baseLink}/compras`; 
                 emailData.bodyHtml = `<p>Hola <strong>${compradorAsignado.name}</strong>, tiene asignada la solicitud N°${numero_solicitud}.</p>`;
-             } else { */
-                emailData.bodyHtml = `<p>La solicitud N°${numero_solicitud} ha avanzado a la etapa de <strong>Compras</strong>.</p>`;
-             /* } */
+             } else {
+                // SI NO TIENE ASIGNADO: Notificar al equipo de Compras
+                
+                // 1. Obtener resumen de la cola
+                const pendientes = await this.findForCompradorQueue(); 
+                const totalPendientes = pendientes.length;
+
+                // 2. Obtener Compradores
+                let allCompradores = await this.usuarioRepo.find({
+                    where: { roles: { nombre: 'COMPRADOR' } },
+                    relations: ['roles']
+                });
+
+                // 3. Excluir Administradores definidos
+                const excludedEmails = ['rpereira@eduhuechuraba.cl', 'mveliz@eduhuechuraba.cl', 'pdiaz@eduhuechuraba.cl'];
+                allCompradores = allCompradores.filter(u => !excludedEmails.includes(u.email));
+                
+                if (allCompradores.length > 0) {
+                    // Limpiar datos de la ficha individual para este reporte y el stepper
+                    emailData.materia = undefined;
+                    emailData.fondo = undefined;
+                    emailData.modalidad = undefined;
+                    emailData.establecimiento = undefined; 
+                    emailData.fechaSolicitud = undefined;
+                    // Anulamos el status ID para evitar renderizar el Stepper visual (barra de progreso)
+                    emailData.currentStatusId = undefined as any; 
+
+                    for (const comp of allCompradores) {
+                        destinatarios.push({ email: comp.email, name: comp.name });
+                    }
+                    
+                    emailData.title = `📊 Resumen: ${totalPendientes} Solicitudes en Cola de Compras`;
+                    emailData.buttonLink = `${baseLink}/compras/queue`;
+                    emailData.buttonText = 'Ir a Bandeja de Compras';
+                    
+                    // 4. Construir Tabla HTML
+                    const rows = pendientes.slice(0, 15).map(p => `
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #ddd;"><strong>${p.numero_solicitud}</strong></td>
+                            <td style="padding: 8px; border-bottom: 1px solid #ddd;">${p.materia_solicitud}</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #ddd;">${p.establecimiento?.name || '-'}</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #ddd; white-space: nowrap;">${new Date(p.fecha_solicitud).toLocaleDateString('es-CL')}</td>
+                        </tr>
+                    `).join('');
+
+                    emailData.bodyHtml = `
+                        <p>Se ha recibido una nueva solicitud en Compras (<strong>#${numero_solicitud}</strong>).</p>
+                        <p>Estado actual de la bandeja de entrada:</p>
+                        
+                        <div style="overflow-x: auto;">
+                            <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; font-family: sans-serif;">
+                                <thead>
+                                    <tr style="background-color: #f1f3f5; color: #495057;">
+                                        <th style="padding: 8px; border-bottom: 2px solid #dee2e6; text-align: left;">Folio</th>
+                                        <th style="padding: 8px; border-bottom: 2px solid #dee2e6; text-align: left;">Materia</th>
+                                        <th style="padding: 8px; border-bottom: 2px solid #dee2e6; text-align: left;">Establecimiento</th>
+                                        <th style="padding: 8px; border-bottom: 2px solid #dee2e6; text-align: left;">Fecha</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                        ${totalPendientes > 15 ? `<p style="text-align: center; color: #868e96; font-size: 12px; margin-top: 8px;"><em>Mostrando las 15 más recientes de ${totalPendientes}.</em></p>` : ''}
+                    `;
+                } else {
+                     // Fallback si no hay compradores validos
+                     console.warn('No se encontraron compradores validos para notificar (excluyendo admins).');
+                }
+             }
              break;
 
         case 9: // Pendiente Jefa DEM (Solicitante + Jefa DEM)
@@ -502,6 +570,7 @@ async update(
         const safeDataFields: Partial<SolicitudCompra> = {
             materia_solicitud: dataFields.materia_solicitud,
             fundamentos_solicitud: dataFields.fundamentos_solicitud,
+            observaciones_considerar: dataFields.observaciones_considerar,
             monto_estimado: dataFields.monto_estimado,
             id_convenio_marco: dataFields.id_convenio_marco,
             
@@ -765,6 +834,17 @@ async revisarSolicitud(solicitudId: number, dto: RevisarSolicitudDto, usuarioRev
     });
   }
 
+  async findForCompradorQueue(): Promise<SolicitudCompra[]> {
+    return this.repo.find({
+      where: { 
+        compradorAsignado: IsNull(),
+        estadoSolicitud: { id: 8 }
+      },
+      relations: ['establecimiento', 'estadoSolicitud', 'solicitante'],
+      order: { fecha_solicitud: 'DESC' },
+    });
+  }
+
   async findForFinanzasUser(userId: number): Promise<SolicitudCompra[]> {
     return this.repo.find({
       where: { finAsignado: { id: userId } },
@@ -924,16 +1004,8 @@ async updateFinanzas(id: number, dto: UpdateFinanzasDto): Promise<SolicitudCompr
   return fullSolicitud;
 }
 
-async findForCompradorQueue(): Promise<SolicitudCompra[]> {
-    return this.repo.find({
-      where: { 
-        compradorAsignado: IsNull(),
-        estadoSolicitud: { id: 8 } 
-      },
-      relations: ['establecimiento', 'estadoSolicitud', 'solicitante'],
-      order: { updated_at: 'DESC' },
-    });
-  }
+
+
 
   async findForCompradorUser(userId: number): Promise<SolicitudCompra[]> {
     return this.repo.find({
@@ -1601,9 +1673,17 @@ async devolverAlSolicitante(
     // 3. Preparar datos de actualización
     const updateData: any = {};
     if (dto.orden_compra !== undefined) updateData.orden_compra = dto.orden_compra;
+    if (dto.numero_cotizacion !== undefined) updateData.numero_cotizacion = dto.numero_cotizacion;
     if (dto.numero_licitacion !== undefined) updateData.numero_licitacion = dto.numero_licitacion;
     if (dto.comentarios_orden_compra !== undefined) updateData.comentarios_orden_compra = dto.comentarios_orden_compra;
-    if (dto.monto_final_compra !== undefined) updateData.monto_final_compra = dto.monto_final_compra;
+    
+    if (dto.monto_final_compra !== undefined) {
+        if (dto.monto_final_compra === null || dto.monto_final_compra === '') {
+            updateData.monto_final_compra = null;
+        } else {
+            updateData.monto_final_compra = String(dto.monto_final_compra).replace(',', '.');
+        }
+    }
     
     // 4. Ejecutar actualización parcial sin afectar relaciones
     await this.repo.update(id, updateData);

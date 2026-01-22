@@ -13,19 +13,35 @@ export class CuentasService {
   ) {}
 
   create(dto: CreateCuentaDto) {
-    const e = this.repo.create(dto);
+    const e = this.repo.create({
+      ...dto,
+      periodo: dto.periodo ?? 2026, // Sistema parte desde 2026
+    });
     return this.repo.save(e);
   }
 
-  findAll(query?: string) {
+  findAll(query?: string, anio?: number) {
+    const where: any = {};
+    
+    if (anio) {
+      where.periodo = anio;
+    }
+
     if (query && query.trim()) {
       const q = `%${query.trim()}%`;
       return this.repo.find({
-        where: [{ codigo: ILike(q) }, { descripcion: ILike(q) }],
+        where: [
+          { ...where, codigo: ILike(q) },
+          { ...where, descripcion: ILike(q) }
+        ],
         order: { codigo: 'ASC' },
       });
     }
-    return this.repo.find({ order: { codigo: 'ASC' } });
+    
+    return this.repo.find({ 
+      where,
+      order: { codigo: 'ASC' } 
+    });
   }
 
   async findOne(id: number) {
@@ -55,41 +71,120 @@ export class CuentasService {
     }
   }
 
-// ✅ MÉTODO DE REPORTE PRESUPUESTARIO
-  async obtenerEstadoPresupuestario() {
-    // Usamos createQueryBuilder para una consulta agregada compleja
-    const result = await this.repo.createQueryBuilder('cuenta')
-      // Unimos con la tabla intermedia (imputaciones)
+  async fixDb() {
+    try {
+      // 1. Agregar la columna periodo si no existe
+      await this.repo.query(`
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('cuentas_presupuestarias') AND name = 'periodo')
+        BEGIN
+            ALTER TABLE cuentas_presupuestarias ADD periodo INT NOT NULL DEFAULT 2025;
+        END
+      `);
+
+      // 2. Intentar eliminar el índice antiguo de unicidad solo por código
+      // Nota: El nombre del índice suele ser algo como UQ_... o IDX_...
+      // Intentamos buscarlo por las columnas que lo componen
+      await this.repo.query(`
+        DECLARE @IndexName NVARCHAR(255);
+        SELECT @IndexName = i.name
+        FROM sys.indexes i
+        JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+        WHERE i.object_id = OBJECT_ID('cuentas_presupuestarias')
+          AND i.is_unique = 1
+          AND c.name = 'codigo'
+          AND NOT EXISTS (
+              SELECT 1 FROM sys.index_columns ic2 
+              JOIN sys.columns c2 ON ic2.object_id = c2.object_id AND ic2.column_id = c2.column_id
+              WHERE ic2.object_id = i.object_id AND ic2.index_id = i.index_id AND c2.name = 'periodo'
+          );
+
+        IF @IndexName IS NOT NULL
+        BEGIN
+            EXEC('DROP INDEX ' + @IndexName + ' ON cuentas_presupuestarias');
+        END
+      `);
+
+      // 3. Crear el nuevo índice si no existe
+      await this.repo.query(`
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IDX_codigo_periodo' AND object_id = OBJECT_ID('cuentas_presupuestarias'))
+        BEGIN
+            CREATE UNIQUE INDEX IDX_codigo_periodo ON cuentas_presupuestarias (codigo, periodo);
+        END
+      `);
+
+      return { ok: true, message: 'Esquema actualizado correctamente (Columna periodo añadida e índices actualizados).' };
+    } catch (error) {
+      return { ok: false, message: 'Error al actualizar esquema', error: error.message };
+    }
+  }
+
+// ✅ MÉTODO DE REPORTE PRESUPUESTARIO (Sistema Multianual desde 2026)
+  async obtenerEstadoPresupuestario(anio: number) {
+    /**
+     * REGLA DE NEGOCIO:
+     * - El sistema parte desde 2026 en adelante.
+     * - Cada año es independiente y solo suma las solicitudes de ese año calendario.
+     * - No hay arrastre de años anteriores.
+     */
+    const query = this.repo.createQueryBuilder('cuenta')
       .leftJoin('cuenta.solicitudesRelaciones', 'relacion') 
-      // Unimos con la solicitud para ver su estado
       .leftJoin('relacion.solicitud', 'solicitud')
-      // Unimos con el estado para filtrar por ID (más seguro)
-      .leftJoin('solicitud.estadoSolicitud', 'estado') 
-      
+      .leftJoin('solicitud.estadoSolicitud', 'estado');
+
+    // Condición de fecha: solo solicitudes del año específico
+    const fechaCondicion = `YEAR(solicitud.fecha_solicitud) = ${anio}`;
+
+    query
       .select([
         'cuenta.id AS id',
         'cuenta.codigo AS codigo',
         'cuenta.descripcion AS descripcion',
         'cuenta.monto AS presupuesto_total',
-        // Suma condicional: Sumar montoImputado SOLO si el estado NO es 6 (Rechazada) ni 11 (Fraccionamiento)
-        // Usamos COALESCE para devolver 0 si es null
+        'cuenta.periodo AS periodo',
         `COALESCE(SUM(
             CASE 
-                WHEN estado.id NOT IN (6, 11) AND solicitud.id IS NOT NULL 
+                WHEN estado.id NOT IN (6, 11) AND solicitud.id IS NOT NULL AND ${fechaCondicion}
                 THEN relacion.montoImputado 
                 ELSE 0 
             END
          ), 0) AS total_gastado`
       ])
-      // ⚠️ Regla de SQL: Todo lo que está en SELECT y no es una función de agregación (SUM), debe ir en GROUP BY
+      .where('cuenta.periodo = :anio', { anio })
       .groupBy('cuenta.id')
       .addGroupBy('cuenta.codigo')
       .addGroupBy('cuenta.descripcion')
       .addGroupBy('cuenta.monto')
-      .orderBy('cuenta.codigo', 'ASC')
-      .getRawMany(); // Retorna objetos planos, no entidades
+      .addGroupBy('cuenta.periodo')
+      .orderBy('cuenta.codigo', 'ASC');
 
+    const result = await query.getRawMany();
     return result;
+  }
+
+  async obtenerAniosDisponibles() {
+    const years = await this.repo.createQueryBuilder('cuenta')
+      .select('DISTINCT cuenta.periodo', 'anio')
+      .orderBy('cuenta.periodo', 'DESC')
+      .getRawMany();
+    
+    return years.map(y => y.anio);
+  }
+
+  // ✅ NUEVO: Clonar presupuesto de un año a otro
+  async duplicarAnio(origen: number, destino: number) {
+    const cuentasOrigen = await this.repo.find({ where: { periodo: origen } });
+    
+    const nuevasCuentas = cuentasOrigen.map(c => {
+      const { id, ...data } = c;
+      return this.repo.create({
+        ...data,
+        periodo: destino,
+        monto: 0 // Empezamos en 0 para el nuevo año, o podemos copiar el monto
+      });
+    });
+
+    return this.repo.save(nuevasCuentas);
   }
 
   async obtenerMovimientosCuenta(cuentaId: number) {

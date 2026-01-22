@@ -9,13 +9,16 @@ import { SolicitudCompra } from '../../solicitudes/entities/solicitud-compra.ent
 import { SolicitudCuentaPresupuestaria } from 'src/solicitudes/entities/SolicitudCuentaPresupuestaria.entity';
 
 @Entity('cuentas_presupuestarias')
-@Index(['codigo'], { unique: true })
+@Index(['codigo', 'periodo'], { unique: true }) // Único por código y año
 export class CuentaPresupuestaria {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column({ type: 'nvarchar', length: 32 })
   codigo: string; // ej: 22.01.003
+
+  @Column({ type: 'int', default: 2026 }) // Año del presupuesto (sistema parte desde 2026)
+  periodo: number;
 
   @Column({ type: 'decimal', precision: 18, scale: 0, default: 0 }) 
   monto: number;

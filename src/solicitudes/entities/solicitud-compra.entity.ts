@@ -54,6 +54,9 @@ export class SolicitudCompra {
   @Column()
   fundamentos_solicitud: string;
 
+  @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
+  observaciones_considerar: string | null;
+
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   monto_estimado: string;
 

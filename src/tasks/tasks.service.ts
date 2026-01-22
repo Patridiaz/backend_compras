@@ -91,6 +91,26 @@ const maintenanceScript = `
         BEGIN
             UPDATE dbo.[user] SET area_revisora_id = 1 WHERE id = 5111;
         END
+        IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 4043)
+        BEGIN
+            UPDATE dbo.[user] SET area_revisora_id = 3 WHERE id = 4043;
+        END
+        IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 2116)
+        BEGIN
+            UPDATE dbo.[user] SET area_revisora_id = 3 WHERE id = 2116;
+        END
+        IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 5114)
+        BEGIN
+            UPDATE dbo.[user] SET area_revisora_id = 6 WHERE id = 5114;
+        END
+        IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 5115)
+        BEGIN
+            UPDATE dbo.[user] SET area_revisora_id = 6 WHERE id = 5115;
+        END
+        IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 4078)
+        BEGIN
+            UPDATE dbo.[user] SET area_revisora_id = 6 WHERE id = 4078;
+        END
     `;
 
     try {
