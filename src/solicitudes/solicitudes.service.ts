@@ -1090,7 +1090,7 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
   // Nota: Si el estado ya venía cargado como 8, se guardará como 8 (o lo que tenga).
   const saved = await this.repo.save(solicitud);
 
-  // 6. Registrar comentario del Comprador si existe
+  // 6. Registrar comentario del Comprador si existe (Legacy)
   if (dto.comentarios_orden_compra && solicitud.compradorAsignado) {
       const observacion = this.obsRepo.create({
           observacion: `[COMPRAS - FINALIZADO] ${dto.comentarios_orden_compra}`,
@@ -1099,6 +1099,17 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
           solicitud: saved, // Usamos saved para asegurar referencia
       });
       await this.obsRepo.save(observacion);
+  }
+
+  // 6b. Registrar nueva observación de Compras (com_observaciones)
+  if (dto.com_observaciones && solicitud.compradorAsignado) {
+      const obsCompras = this.obsRepo.create({
+        observacion: `[COMPRAS - OBSERVACIÓN] ${dto.com_observaciones}`,
+        usuario: solicitud.compradorAsignado,
+        areaRevisora: solicitud.areaRevisora,
+        solicitud: saved,
+      });
+      await this.obsRepo.save(obsCompras);
   }
 
   // 7. CAMBIAR ESTADO A FINALIZADA (ID 2) FUERZOSAMENTE CON UPDATE
@@ -1672,6 +1683,17 @@ async devolverAlSolicitante(
     
     // 4. Ejecutar actualización
     await this.repo.update(id, updateData);
+
+    // 4b. Registrar Observación de Liberación (si existe)
+    if (dto.com_observaciones) {
+        const obsLiberacion = this.obsRepo.create({
+            observacion: `[COMPRAS - LIBERADO] ${dto.com_observaciones}`,
+            usuario: usuario, 
+            areaRevisora: solicitud.areaRevisora,
+            solicitud: solicitud,
+        });
+        await this.obsRepo.save(obsLiberacion);
+    }
 
     // 5. Retornar la solicitud fresca
     return this.findOne(id);
