@@ -1084,6 +1084,7 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
   }
   
   if (dto.comentarios_orden_compra !== undefined) solicitud.comentarios_orden_compra = dto.comentarios_orden_compra;
+  if (dto.com_observaciones !== undefined) solicitud.com_observaciones = dto.com_observaciones;
 
   // 5. Guardar DATOS (manteniendo estado original por ahora, para evitar reversiones mágicas por cascade)
   // Nota: Si el estado ya venía cargado como 8, se guardará como 8 (o lo que tenga).
@@ -1666,6 +1667,7 @@ async devolverAlSolicitante(
     if (dto.orden_compra !== undefined) updateData.orden_compra = dto.orden_compra;
     if (dto.numero_licitacion !== undefined) updateData.numero_licitacion = dto.numero_licitacion;
     if (dto.comentarios_orden_compra !== undefined) updateData.comentarios_orden_compra = dto.comentarios_orden_compra;
+    if (dto.com_observaciones !== undefined) updateData.com_observaciones = dto.com_observaciones;
     if (dto.monto_final_compra !== undefined) updateData.monto_final_compra = dto.monto_final_compra;
     
     // 4. Ejecutar actualización
@@ -1715,6 +1717,7 @@ async devolverAlSolicitante(
     if (dto.numero_cotizacion !== undefined) updateData.numero_cotizacion = dto.numero_cotizacion;
     if (dto.numero_licitacion !== undefined) updateData.numero_licitacion = dto.numero_licitacion;
     if (dto.comentarios_orden_compra !== undefined) updateData.comentarios_orden_compra = dto.comentarios_orden_compra;
+    if (dto.com_observaciones !== undefined) updateData.com_observaciones = dto.com_observaciones;
     
     if (dto.monto_final_compra !== undefined) {
         if (dto.monto_final_compra === null || dto.monto_final_compra === '') {
