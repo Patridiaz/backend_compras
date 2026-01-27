@@ -1073,6 +1073,9 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
   // 4. Actualizar campos del DTO en la entidad (sin estado)
   if (dto.orden_compra !== undefined) solicitud.orden_compra = dto.orden_compra;
   if (dto.numero_licitacion !== undefined) solicitud.numero_licitacion = dto.numero_licitacion;
+  if (dto.fecha_publicacion !== undefined) solicitud.fecha_publicacion = dto.fecha_publicacion ? new Date(dto.fecha_publicacion) : null;
+  if (dto.fecha_apertura !== undefined) solicitud.fecha_apertura = dto.fecha_apertura ? new Date(dto.fecha_apertura) : null;
+  if (dto.fecha_cierre !== undefined) solicitud.fecha_cierre = dto.fecha_cierre ? new Date(dto.fecha_cierre) : null;
   if (dto.numero_cotizacion !== undefined) solicitud.numero_cotizacion = dto.numero_cotizacion;
   
   if (dto.monto_final_compra !== undefined) {
@@ -1677,6 +1680,9 @@ async devolverAlSolicitante(
 
     if (dto.orden_compra !== undefined) updateData.orden_compra = dto.orden_compra;
     if (dto.numero_licitacion !== undefined) updateData.numero_licitacion = dto.numero_licitacion;
+    if (dto.fecha_publicacion !== undefined) updateData.fecha_publicacion = dto.fecha_publicacion ? new Date(dto.fecha_publicacion) : null;
+    if (dto.fecha_apertura !== undefined) updateData.fecha_apertura = dto.fecha_apertura ? new Date(dto.fecha_apertura) : null;
+    if (dto.fecha_cierre !== undefined) updateData.fecha_cierre = dto.fecha_cierre ? new Date(dto.fecha_cierre) : null;
     if (dto.comentarios_orden_compra !== undefined) updateData.comentarios_orden_compra = dto.comentarios_orden_compra;
     if (dto.com_observaciones !== undefined) updateData.com_observaciones = dto.com_observaciones;
     if (dto.monto_final_compra !== undefined) updateData.monto_final_compra = dto.monto_final_compra;
@@ -1738,6 +1744,9 @@ async devolverAlSolicitante(
     if (dto.orden_compra !== undefined) updateData.orden_compra = dto.orden_compra;
     if (dto.numero_cotizacion !== undefined) updateData.numero_cotizacion = dto.numero_cotizacion;
     if (dto.numero_licitacion !== undefined) updateData.numero_licitacion = dto.numero_licitacion;
+    if (dto.fecha_publicacion !== undefined) updateData.fecha_publicacion = dto.fecha_publicacion ? new Date(dto.fecha_publicacion) : null;
+    if (dto.fecha_apertura !== undefined) updateData.fecha_apertura = dto.fecha_apertura ? new Date(dto.fecha_apertura) : null;
+    if (dto.fecha_cierre !== undefined) updateData.fecha_cierre = dto.fecha_cierre ? new Date(dto.fecha_cierre) : null;
     if (dto.comentarios_orden_compra !== undefined) updateData.comentarios_orden_compra = dto.comentarios_orden_compra;
     if (dto.com_observaciones !== undefined) updateData.com_observaciones = dto.com_observaciones;
     

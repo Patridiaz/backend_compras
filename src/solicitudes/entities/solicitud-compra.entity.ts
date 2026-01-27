@@ -146,6 +146,15 @@ export class SolicitudCompra {
   @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
   monto_final_compra: string | null;
 
+  @Column({ type: 'datetime', nullable: true })
+  fecha_publicacion: Date | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  fecha_apertura: Date | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  fecha_cierre: Date | null;
+
    /* ===================== CAMPOS JEFA DEM ===================== */
   // QUIÉN APROBÓ O RECHAZÓ EL PROCESO FINAL
   @ManyToOne(() => Usuario, { nullable: true })

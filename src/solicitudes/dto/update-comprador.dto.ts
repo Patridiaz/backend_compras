@@ -22,6 +22,18 @@ export class UpdateCompradorDto {
   monto_final_compra?: string; // <-- AÑADIR
 
   @IsOptional()
+  @IsString() // O IsDateString
+  fecha_publicacion?: string;
+
+  @IsOptional()
+  @IsString()
+  fecha_apertura?: string;
+
+  @IsOptional()
+  @IsString()
+  fecha_cierre?: string;
+
+  @IsOptional()
   @IsString()
   com_observaciones?: string;
 
