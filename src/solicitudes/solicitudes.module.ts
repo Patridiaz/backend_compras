@@ -17,11 +17,13 @@ import { CentroCosto } from 'src/centro-costo/entities/centro-costo.entity';
 import { SolicitudCuentaPresupuestaria } from './entities/SolicitudCuentaPresupuestaria.entity';
 import { SolicitudesPdfService } from './solicitudes-pdf.service';
 import { EmailService } from 'src/auth/nodemailer/email.service';
+import { Anexo } from 'src/anexos/entities/anexo.entity';
 
 @Module({
   imports: [
     // ✅ CORRECCIÓN: Todas las entidades ahora se registran juntas en la única conexión por defecto.
     TypeOrmModule.forFeature([
+      Anexo,
       SolicitudCompra,
       Establecimiento,
       AreaRevisora,

@@ -68,6 +68,7 @@ export class SolicitudesController {
         { name: 'req_compra_agil', maxCount: 1 },
         { name: 'nominas', maxCount: 1 },
         { name: 'espec_productos', maxCount: 1 },
+        { name: 'anexos', maxCount: 10 },
       ],
       {
         storage: diskStorage({
@@ -286,6 +287,7 @@ export class SolicitudesController {
             { name: 'req_compra_agil', maxCount: 1 },
             { name: 'nominas', maxCount: 1 },
             { name: 'espec_productos', maxCount: 1 },
+            { name: 'anexos', maxCount: 10 },
         ],
         {
             storage: diskStorage({
@@ -317,7 +319,11 @@ update(
     return this.service.remove(+id);
   }
 
-  // --- NUEVO ENDPOINT PARA DEVOLVER AL SOLICITANTE ---
+  @Delete('anexo/:anexoId')
+  removeAnexo(@Param('anexoId') anexoId: string) {
+    return this.service.removeAnexo(+anexoId);
+  }
+
   @Post(':id/devolver')
     // ✅ Usar Guards y Roles aquí para restringir a COMPRAS, FINANZAS, JEFA DEM
     devolverSolicitud(

@@ -35,6 +35,7 @@ import { IsNumber } from 'class-validator';
 import { UpdateSolicitudAdminDto } from './dto/update-solicitud-admin.dto';
 import { BASE_URL, generateEmailHtml, EmailTemplateData } from 'src/auth/nodemailer/email.templates';
 import { EmailService } from 'src/auth/nodemailer/email.service';
+import { Anexo } from 'src/anexos/entities/anexo.entity';
 
 @Injectable()
 export class SolicitudesService {
@@ -49,6 +50,7 @@ export class SolicitudesService {
     @InjectRepository(CuentaPresupuestaria) private readonly cuentasRepo: Repository<CuentaPresupuestaria>,
     @InjectRepository(SolicitudCuentaPresupuestaria) private readonly solicitudCuentaRepo: Repository<SolicitudCuentaPresupuestaria>,
     @InjectRepository(CentroCosto) private readonly centroCostoRepo: Repository<CentroCosto>,
+    @InjectRepository(Anexo) private readonly anexoRepo: Repository<Anexo>,
     private readonly emailService: EmailService,
   ) {
     // Inicializar OpenAI
@@ -453,6 +455,7 @@ async create(
   if (files) {
     const basePath = '/uploads/';
     for (const key in files) {
+      if (key === 'anexos') continue;
       if (files[key]?.[0]) {
         data[key] = basePath + files[key][0].filename;
       }
@@ -465,6 +468,10 @@ async create(
   // Refuerzo explícito del estado Borrador (ID 4)
   entity.estadoSolicitud = estadoInicial; 
   const saved = await this.repo.save(entity);
+
+  if (files && files.anexos) {
+      await this.processAnexos(saved, files.anexos);
+  }
   
   // [NOTIFICACIÓN] - Cargamos la solicitud completa con relaciones para el email
   const fullSolicitud = await this.findOne(saved.id);
@@ -496,6 +503,7 @@ async findOne(id: number): Promise<SolicitudCompra> {
             'observacionesArea.usuario',
             'observacionesArea.areaRevisora',
             'pme',
+            'anexos',
           ],
     });
     if (!solicitud) {
@@ -626,9 +634,11 @@ async update(
     
     // 5. Lógica de Manejo de Archivos (Mantenida)
 if (files) {
-        const basePath = '/uploads/';
-          for (const key in files) {
-                      if (files[key]?.[0]) {
+
+         const basePath = '/uploads/';
+           for (const key in files) {
+                if (key === 'anexos') continue;
+                       if (files[key]?.[0]) {
                           type FileKeys = 'cotizacion' | 'terminos_de_referencia' | 'bt' | 'req_compra_agil' | 'nominas' | 'espec_productos';
                           
                           const entityKey = key as keyof SolicitudCompra;
@@ -660,8 +670,30 @@ if (files) {
     }
     
     // 6. Guardar y devolver la entidad
-    return this.repo.save(existingSolicitud);
-}  
+     const saved = await this.repo.save(existingSolicitud);
+
+    // Procesar Anexos DESPUÉS de guardar (para evitar que TypeORM los borre por orphanedRowAction al sincronizar)
+    if (files && files.anexos) {
+        await this.processAnexos(saved, files.anexos);
+    }
+    
+    return saved;
+}
+
+  private async processAnexos(solicitud: SolicitudCompra, anexosFiles: any[]) {
+      if (!anexosFiles || anexosFiles.length === 0) return;
+      
+      const entities = anexosFiles.map(file => {
+          return this.anexoRepo.create({
+              nombre_original: file.originalname,
+              nombre_archivo: '/uploads/' + file.filename,
+              mimetype: file.mimetype,
+              size: file.size,
+              solicitud: solicitud
+          });
+      });
+      await this.anexoRepo.save(entities);
+  }  
 
 async remove(id: number) {
     const solicitud = await this.repo.findOneBy({ id });
@@ -708,6 +740,33 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
   }
 
   
+  async removeAnexo(anexoId: number): Promise<{ ok: boolean }> {
+    const anexo = await this.anexoRepo.findOne({
+      where: { id: anexoId }
+    });
+
+    if (!anexo) {
+      throw new NotFoundException(`Anexo con ID ${anexoId} no encontrado.`);
+    }
+
+    // 1. Eliminar archivo físico
+    if (anexo.nombre_archivo) {
+      const filePath = join(process.cwd(), anexo.nombre_archivo);
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (error) {
+          console.error(`Error al eliminar archivo físico: ${filePath}`, error);
+        }
+      }
+    }
+
+    // 2. Eliminar registro en BD
+    await this.anexoRepo.remove(anexo);
+
+    return { ok: true };
+  }
+
   async findForAreaRevisoraQueue(areaId: number): Promise<SolicitudCompra[]> {
     return this.repo.find({
       where: { 

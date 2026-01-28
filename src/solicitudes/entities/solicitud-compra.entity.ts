@@ -21,6 +21,7 @@ import { ObservacionArea } from '../../observaciones/entities/observacion-area.e
 import { Usuario } from '../../usuarios/usuario.entity';
 import { CentroCosto } from '../../centro-costo/entities/centro-costo.entity';
 import { SolicitudCuentaPresupuestaria } from './SolicitudCuentaPresupuestaria.entity';
+import { Anexo } from '../../anexos/entities/anexo.entity';
 
 @Entity('solicitudes_compra')
 export class SolicitudCompra {
@@ -177,6 +178,9 @@ export class SolicitudCompra {
   
   @OneToMany(() => ObservacionArea, o => o.solicitud, { cascade: true })
   observacionesArea: ObservacionArea[];
+
+  @OneToMany(() => Anexo, (anexo) => anexo.solicitud, { cascade: true, eager: true })
+  anexos: Anexo[];
 
   // QUIÉN TOMA LA SOLICITUD EN EL ÁREA REVISORA
   @ManyToOne(() => Usuario, { nullable: true })
