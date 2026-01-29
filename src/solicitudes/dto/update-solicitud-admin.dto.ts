@@ -1,7 +1,13 @@
-import { IsOptional, IsString, IsNumber, IsBoolean } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsBoolean, IsArray, ValidateNested } from 'class-validator';
+import { Type } from '@nestjs/class-transformer';
+import { CuentaMontoDto } from './update-finanzas.dto';
 
 export class UpdateSolicitudAdminDto {
   // --- Campos de Texto / Básicos ---
+  @IsOptional()
+  @IsString()
+  numero_solicitud?: string;
+
   @IsOptional()
   @IsString()
   materia_solicitud?: string;
@@ -16,7 +22,7 @@ export class UpdateSolicitudAdminDto {
 
   @IsOptional()
   @IsString()
-  observaciones?: string;
+  observaciones_considerar?: string;
 
   @IsOptional()
   @IsString()
@@ -43,6 +49,10 @@ export class UpdateSolicitudAdminDto {
   @IsNumber()
   establecimiento_id?: number;
 
+  @IsOptional()
+  @IsNumber()
+  pme_id?: number;
+
   // --- Asignaciones de Usuarios ---
   @IsOptional()
   @IsNumber()
@@ -59,13 +69,56 @@ export class UpdateSolicitudAdminDto {
 
   @IsOptional()
   @IsString()
+  numero_cotizacion?: string;
+
+  @IsOptional()
+  @IsString()
   numero_licitacion?: string;
   
   @IsOptional()
   @IsString()
+  fecha_publicacion?: string;
+
+  @IsOptional()
+  @IsString()
+  fecha_apertura?: string;
+
+  @IsOptional()
+  @IsString()
+  fecha_cierre?: string;
+
+  @IsOptional()
+  @IsString()
   comentarios_orden_compra?: string;
+
+  @IsOptional()
+  @IsString()
+  com_observaciones?: string;
   
   @IsOptional()
   @IsString()
   monto_final_compra?: string;
+
+  @IsOptional()
+  @IsString()
+  jefa_observaciones?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  fraccionamiento_compra?: boolean;
+
+  // --- Finanzas / Cuentas ---
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CuentaMontoDto)
+  cuentas?: CuentaMontoDto[];
+
+  @IsOptional()
+  @IsNumber()
+  fin_centro_costo_id?: number;
+
+  @IsOptional()
+  @IsNumber()
+  solicitante_id?: number;
 }

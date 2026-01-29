@@ -1609,16 +1609,27 @@ async devolverAlSolicitante(
     }
 
     // 2. Actualizar campos simples (si vienen en el DTO)
+    if (dto.numero_solicitud !== undefined) solicitud.numero_solicitud = dto.numero_solicitud;
     if (dto.materia_solicitud !== undefined) solicitud.materia_solicitud = dto.materia_solicitud;
     if (dto.fundamentos_solicitud !== undefined) solicitud.fundamentos_solicitud = dto.fundamentos_solicitud;
     if (dto.monto_estimado !== undefined) solicitud.monto_estimado = dto.monto_estimado;
     if (dto.id_convenio_marco !== undefined) solicitud.id_convenio_marco = dto.id_convenio_marco;
+    if (dto.observaciones_considerar !== undefined) solicitud.observaciones_considerar = dto.observaciones_considerar;
     
     // Campos de compra
     if (dto.orden_compra !== undefined) solicitud.orden_compra = dto.orden_compra;
+    if (dto.numero_cotizacion !== undefined) solicitud.numero_cotizacion = dto.numero_cotizacion;
     if (dto.numero_licitacion !== undefined) solicitud.numero_licitacion = dto.numero_licitacion;
     if (dto.comentarios_orden_compra !== undefined) solicitud.comentarios_orden_compra = dto.comentarios_orden_compra;
+    if (dto.com_observaciones !== undefined) solicitud.com_observaciones = dto.com_observaciones;
     if (dto.monto_final_compra !== undefined) solicitud.monto_final_compra = dto.monto_final_compra;
+    if (dto.jefa_observaciones !== undefined) solicitud.jefa_observaciones = dto.jefa_observaciones;
+    if (dto.fraccionamiento_compra !== undefined) solicitud.fraccionamiento_compra = dto.fraccionamiento_compra;
+
+    // Fechas
+    if (dto.fecha_publicacion !== undefined) solicitud.fecha_publicacion = dto.fecha_publicacion ? new Date(dto.fecha_publicacion) : null;
+    if (dto.fecha_apertura !== undefined) solicitud.fecha_apertura = dto.fecha_apertura ? new Date(dto.fecha_apertura) : null;
+    if (dto.fecha_cierre !== undefined) solicitud.fecha_cierre = dto.fecha_cierre ? new Date(dto.fecha_cierre) : null;
 
     // 3. Actualizar Relaciones (Foreign Keys)
     // TypeORM permite asignar un objeto { id: X } a la relación para actualizar la FK
@@ -1643,6 +1654,14 @@ async devolverAlSolicitante(
        solicitud.establecimiento = { id: dto.establecimiento_id } as any;
     }
 
+    if (dto.pme_id !== undefined) {
+      if (dto.pme_id === null) {
+        solicitud.pme = null;
+      } else {
+        solicitud.pme = { id: dto.pme_id } as any;
+      }
+    }
+
     // 4. Actualizar Asignaciones de Usuarios (Manejo de nulos)
     
     // Comprador
@@ -1661,6 +1680,54 @@ async devolverAlSolicitante(
       } else {
         solicitud.finAsignado = { id: dto.fin_asignado_id } as any;
       }
+    }
+
+    // --- 👇 NUEVO: Cuentas Presupuestarias (Admin) ---
+    if (dto.cuentas !== undefined) {
+      // 1. Borrar relaciones antiguas
+      await this.solicitudCuentaRepo.delete({ solicitud: { id } });
+
+      if (dto.cuentas && dto.cuentas.length > 0) {
+        const cuentaIds = dto.cuentas.map(c => c.cuentaId);
+        const uniqueIds = [...new Set(cuentaIds)];
+        const cuentasEntidades = await this.cuentasRepo.find({ where: { id: In(uniqueIds) } });
+
+        const cuentasMap = new Map(cuentasEntidades.map(c => [c.id, c]));
+
+        const nuevasRelaciones = await Promise.all(
+          dto.cuentas.map(async cuentaDto => {
+            const montoParaBd = String(cuentaDto.monto).replace(',', '.');
+
+            let centroCosto: CentroCosto | null = null;
+            if (cuentaDto.centroCostoId) {
+              centroCosto = await this.centroCostoRepo.findOneBy({ id: cuentaDto.centroCostoId });
+            }
+
+            return this.solicitudCuentaRepo.create({
+              cuentaPresupuestaria: cuentasMap.get(cuentaDto.cuentaId),
+              solicitud: { id },
+              montoImputado: montoParaBd,
+              centroCosto: centroCosto ?? undefined,
+            });
+          })
+        );
+        solicitud.cuentasPresupuestarias = nuevasRelaciones;
+      } else {
+        solicitud.cuentasPresupuestarias = [];
+      }
+    }
+
+    // --- 👇 NUEVO: Centro de Costo (Legacy) ---
+    if (dto.fin_centro_costo_id !== undefined) {
+      if (dto.fin_centro_costo_id === null) {
+        solicitud.finCentroCosto = null;
+      } else {
+        solicitud.finCentroCosto = { id: dto.fin_centro_costo_id } as any;
+      }
+    }
+
+    if (dto.solicitante_id !== undefined && dto.solicitante_id !== null) {
+      solicitud.solicitante = { id: dto.solicitante_id } as any;
     }
 
     // 5. Guardar cambios
