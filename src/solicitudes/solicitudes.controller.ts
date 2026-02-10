@@ -205,6 +205,12 @@ export class SolicitudesController {
     return this.service.findForAreaRevisoraUser(Number(userId));
   }
 
+  // 🔧 ENDPOINT DE DIAGNÓSTICO: Ver todas las solicitudes en estado 3 agrupadas por área
+  @Get('diagnostico/estado-revision')
+  diagnosticarEstadoRevision() {
+    return this.service.diagnosticarEstadoRevision();
+  }
+
   // --- NUEVO ENDPOINT PARA REVISAR/DERIVAR ---
   @Post(':id/revisar')
   revisar(

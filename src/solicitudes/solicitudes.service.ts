@@ -768,15 +768,49 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
   }
 
   async findForAreaRevisoraQueue(areaId: number): Promise<SolicitudCompra[]> {
-    return this.repo.find({
+    console.log(`\n🔍 [DEBUG] findForAreaRevisoraQueue - Buscando solicitudes para área ID: ${areaId}`);
+    
+    // Primero, verificamos TODAS las solicitudes con este área y estado 3, sin filtrar por asignación
+    const todasEnRevision = await this.repo.find({
+      where: { 
+        areaRevisora: { id: areaId },
+        estadoSolicitud: { id: 3 },
+      },
+      relations: ['establecimiento', 'estadoSolicitud', 'solicitante', 'areaRevisora', 'areaAsignado'],
+      order: { fecha_solicitud: 'DESC' },
+    });
+    
+    console.log(`📊 [DEBUG] Total solicitudes en estado 3 para área ${areaId}: ${todasEnRevision.length}`);
+    
+    if (todasEnRevision.length > 0) {
+      console.log(`📋 [DEBUG] Detalle de solicitudes encontradas:`);
+      todasEnRevision.forEach(sol => {
+        console.log(`  - ID: ${sol.id}, Número: ${sol.numero_solicitud}, ` +
+                    `Área: ${sol.areaRevisora?.nombre || 'N/A'} (ID: ${sol.areaRevisora?.id}), ` +
+                    `Estado: ${sol.estadoSolicitud?.nombre || 'N/A'} (ID: ${sol.estadoSolicitud?.id}), ` +
+                    `Asignado a: ${sol.areaAsignado ? `Usuario ID ${sol.areaAsignado.id}` : 'NULL ✅'}`);
+      });
+    }
+    
+    // Ahora aplicamos el filtro completo (incluyendo areaAsignado = NULL)
+    const resultado = await this.repo.find({
       where: { 
         areaRevisora: { id: areaId },
         areaAsignado: IsNull(),
         estadoSolicitud: { id: 3 }, // 3 = "En revisión"
       },
-      relations: ['establecimiento', 'estadoSolicitud', 'solicitante'],
+      relations: ['establecimiento', 'estadoSolicitud', 'solicitante', 'areaRevisora'],
       order: { fecha_solicitud: 'DESC' },
     });
+    
+    console.log(`✅ [DEBUG] Solicitudes NO asignadas (queue) para área ${areaId}: ${resultado.length}`);
+    
+    if (resultado.length === 0 && todasEnRevision.length > 0) {
+      console.warn(`⚠️ [ALERTA] Hay ${todasEnRevision.length} solicitudes en revisión para el área ${areaId}, ` +
+                   `pero TODAS están asignadas a usuarios específicos. Esto podría indicar que no hay solicitudes en la "bandeja" (queue).`);
+    }
+    
+    return resultado;
   }
 
   async findForAreaRevisoraUser(userId: number): Promise<SolicitudCompra[]> {
@@ -785,6 +819,56 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
       relations: ['establecimiento', 'estadoSolicitud', 'solicitante'],
       order: { updated_at: 'DESC' },
     });
+  }
+
+  /**
+   * 🔧 MÉTODO DE DIAGNÓSTICO: Obtiene todas las solicitudes en estado 3 agrupadas por área
+   * Útil para diagnosticar problemas de visibilidad en las bandejas de áreas
+   */
+  async diagnosticarEstadoRevision(): Promise<any> {
+    const solicitudesEnRevision = await this.repo.find({
+      where: { estadoSolicitud: { id: 3 } },
+      relations: ['areaRevisora', 'estadoSolicitud', 'areaAsignado', 'solicitante', 'establecimiento'],
+      order: { fecha_solicitud: 'DESC' },
+    });
+
+    const agrupadas = solicitudesEnRevision.reduce((acc, sol) => {
+      const areaId = sol.areaRevisora?.id || 'SIN_AREA';
+      const areaNombre = sol.areaRevisora?.nombre || 'SIN ÁREA';
+      
+      if (!acc[areaId]) {
+        acc[areaId] = {
+          areaId,
+          areaNombre,
+          total: 0,
+          sinAsignar: 0,
+          asignadas: 0,
+          solicitudes: []
+        };
+      }
+      
+      acc[areaId].total++;
+      if (sol.areaAsignado) {
+        acc[areaId].asignadas++;
+      } else {
+        acc[areaId].sinAsignar++;
+      }
+      
+      acc[areaId].solicitudes.push({
+        id: sol.id,
+        numero: sol.numero_solicitud,
+        establecimiento: sol.establecimiento?.name,
+        asignadoA: sol.areaAsignado ? `Usuario ID ${sol.areaAsignado.id}` : null,
+        fechaSolicitud: sol.fecha_solicitud
+      });
+      
+      return acc;
+    }, {});
+
+    return {
+      totalEnEstado3: solicitudesEnRevision.length,
+      porArea: Object.values(agrupadas)
+    };
   }
 
   async assignToAreaRevisora(solicitudId: number, dto: AssignAreaDto): Promise<SolicitudCompra> {
