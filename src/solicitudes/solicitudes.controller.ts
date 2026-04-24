@@ -57,6 +57,20 @@ export class SolicitudesController {
     res.end(buffer);
   }
 
+  @Get(':id/documento-legal')
+  async descargarDocumentoLegal(@Param('id') id: string, @Res() res: Response) {
+    const solicitud = await this.service.findOne(Number(id));
+    const buffer = await this.pdfService.generateSolicitudPdf(solicitud);
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=documento_legal_${solicitud.numero_solicitud}.pdf`,
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
+  }
+
   // --- Colección
   @Post()
   @UseInterceptors(
