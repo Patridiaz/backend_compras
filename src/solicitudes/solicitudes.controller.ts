@@ -358,11 +358,37 @@ update(
 
   @Patch(':id/admin-update')
   // @Auth(Rol.ADMIN) // 👈 IMPORTANTE: Descomenta esto si tienes guards para proteger la ruta
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'cotizacion', maxCount: 1 },
+        { name: 'terminos_de_referencia', maxCount: 1 },
+        { name: 'bt', maxCount: 1 },
+        { name: 'req_compra_agil', maxCount: 1 },
+        { name: 'nominas', maxCount: 1 },
+        { name: 'espec_productos', maxCount: 1 },
+        { name: 'anexos', maxCount: 10 },
+      ],
+      {
+        storage: diskStorage({
+          destination: './uploads',
+          filename: (req, file, cb) => {
+            const randomName = Array(32)
+              .fill(null)
+              .map(() => Math.round(Math.random() * 16).toString(16))
+              .join('');
+            return cb(null, `${randomName}${extname(file.originalname)}`);
+          },
+        }),
+      },
+    ),
+  )
   async adminUpdate(
     @Param('id') id: number,
+    @UploadedFiles() files: any,
     @Body() dto: UpdateSolicitudAdminDto,
   ) {
-    return this.service.adminUpdate(id, dto);
+    return this.service.adminUpdate(id, dto, files);
   }
 
   @Post(':id/destacar')

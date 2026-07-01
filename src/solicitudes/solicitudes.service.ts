@@ -39,7 +39,7 @@ import { Anexo } from 'src/anexos/entities/anexo.entity';
 
 @Injectable()
 export class SolicitudesService {
-  private openai: OpenAI;
+  private openai: OpenAI | null;
 
   constructor(
     @InjectRepository(SolicitudCompra) private readonly repo: Repository<SolicitudCompra>,
@@ -57,9 +57,13 @@ export class SolicitudesService {
     const apiKey = process.env.OPENAI_API_KEY;
     console.log(`[OpenAI] Configurando con API Key: ${apiKey ? apiKey.substring(0, 5) + '...' + apiKey.substring(apiKey.length - 4) : 'NO ENCONTRADA'}`);
     
-    this.openai = new OpenAI({
-      apiKey: apiKey || '',
-    });
+    if (apiKey) {
+      this.openai = new OpenAI({
+        apiKey: apiKey,
+      });
+    } else {
+      this.openai = null;
+    }
   }
 
 
@@ -328,6 +332,11 @@ export class SolicitudesService {
 
   async optimizeFundamentos(fundamentos: string): Promise<{ fundamentos_optimizada: string }> {
     if (!fundamentos) throw new BadRequestException("El campo de fundamentos es requerido.");
+
+    if (!this.openai) {
+      console.warn("[OpenAI] API Key no configurada. Retornando texto original.");
+      return { fundamentos_optimizada: fundamentos };
+    }
 
     try {
       const response = await this.openai.chat.completions.create({
@@ -1678,7 +1687,7 @@ async devolverAlSolicitante(
 // =================================================================
   // === ACTUALIZACIÓN ADMINISTRATIVA (GOD MODE) ===
   // =================================================================
-  async adminUpdate(id: number, dto: UpdateSolicitudAdminDto): Promise<SolicitudCompra> {
+  async adminUpdate(id: number, dto: UpdateSolicitudAdminDto, files?: any): Promise<SolicitudCompra> {
     // 1. Buscar la solicitud existente
     const solicitud = await this.repo.findOne({
       where: { id },
@@ -1768,27 +1777,38 @@ async devolverAlSolicitante(
 
     // --- 👇 NUEVO: Cuentas Presupuestarias (Admin) ---
     if (dto.cuentas !== undefined) {
+      let cuentasParsed: any[] = [];
+      if (typeof dto.cuentas === 'string') {
+        try {
+          cuentasParsed = JSON.parse(dto.cuentas);
+        } catch (e) {
+          cuentasParsed = [];
+        }
+      } else if (Array.isArray(dto.cuentas)) {
+        cuentasParsed = dto.cuentas;
+      }
+
       // 1. Borrar relaciones antiguas
       await this.solicitudCuentaRepo.delete({ solicitud: { id } });
 
-      if (dto.cuentas && dto.cuentas.length > 0) {
-        const cuentaIds = dto.cuentas.map(c => c.cuentaId);
+      if (cuentasParsed && cuentasParsed.length > 0) {
+        const cuentaIds = cuentasParsed.map(c => Number(c.cuentaId));
         const uniqueIds = [...new Set(cuentaIds)];
         const cuentasEntidades = await this.cuentasRepo.find({ where: { id: In(uniqueIds) } });
 
         const cuentasMap = new Map(cuentasEntidades.map(c => [c.id, c]));
 
         const nuevasRelaciones = await Promise.all(
-          dto.cuentas.map(async cuentaDto => {
+          cuentasParsed.map(async cuentaDto => {
             const montoParaBd = String(cuentaDto.monto).replace(',', '.');
 
             let centroCosto: CentroCosto | null = null;
             if (cuentaDto.centroCostoId) {
-              centroCosto = await this.centroCostoRepo.findOneBy({ id: cuentaDto.centroCostoId });
+              centroCosto = await this.centroCostoRepo.findOneBy({ id: Number(cuentaDto.centroCostoId) });
             }
 
             return this.solicitudCuentaRepo.create({
-              cuentaPresupuestaria: cuentasMap.get(cuentaDto.cuentaId),
+              cuentaPresupuestaria: cuentasMap.get(Number(cuentaDto.cuentaId)),
               solicitud: { id },
               montoImputado: montoParaBd,
               centroCosto: centroCosto ?? undefined,
@@ -1814,9 +1834,28 @@ async devolverAlSolicitante(
       solicitud.solicitante = { id: dto.solicitante_id } as any;
     }
 
+    // Procesar archivos si existen
+    if (files) {
+      const basePath = '/uploads/';
+      for (const key in files) {
+        if (key === 'anexos') continue;
+        if (files[key]?.[0]) {
+          type FileKeys = 'cotizacion' | 'terminos_de_referencia' | 'bt' | 'req_compra_agil' | 'nominas' | 'espec_productos';
+          if (['cotizacion', 'terminos_de_referencia', 'bt', 'req_compra_agil', 'nominas', 'espec_productos'].includes(key)) {
+            const fileKey = key as FileKeys;
+            solicitud[fileKey] = basePath + files[key][0].filename;
+          }
+        }
+      }
+    }
+
     // 5. Guardar cambios
     // Usamos save para que se ejecuten los subscribers si tienes alguno, o update puro si prefieres rendimiento
-    await this.repo.save(solicitud);
+    const saved = await this.repo.save(solicitud);
+
+    if (files && files.anexos) {
+      await this.processAnexos(saved, files.anexos);
+    }
 
     // 6. Retornar la solicitud actualizada y fresca
     return this.findOne(id);
