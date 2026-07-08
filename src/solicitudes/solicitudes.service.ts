@@ -2023,11 +2023,13 @@ async devolverAlSolicitante(
         // Opción A: El rol es un Objeto (viene de la BD) -> Chequeamos ID o Nombre
         if (typeof rol === 'object' && rol !== null) {
             return Number(rol.id) === 9 || Number(rol.id) === 1 || 
-                   rol.nombre === 'solicitud_view' || rol.nombre === 'admin';
+                   rol.nombre === 'solicitud_view' || rol.nombre === 'admin' ||
+                   rol.nombre === 'USER' || rol.nombre === 'user';
         }
         // Opción B: El rol es un String (viene del Token) -> Chequeamos el texto exacto
         if (typeof rol === 'string') {
-            return rol === 'solicitud_view' || rol === 'admin'; 
+            return rol === 'solicitud_view' || rol === 'admin' ||
+                   rol === 'USER' || rol === 'user'; 
         }
         
         return false;
@@ -2035,7 +2037,7 @@ async devolverAlSolicitante(
 
     if (!tienePermiso) {
         throw new ForbiddenException(
-            `Acceso denegado. Se requiere el rol 'solicitud_view' (ID 9) o 'admin'.`
+            `Acceso denegado. Se requiere el rol 'solicitud_view', 'admin' o 'USER'.`
         );
     }
 
