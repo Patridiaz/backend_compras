@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  backend-compras:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: backend_compras_app
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "3008:3008"
+    volumes:
+      - ./uploads:/usr/src/app/uploads
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
