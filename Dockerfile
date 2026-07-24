@@ -32,7 +32,8 @@ RUN npm ci --only=production
 COPY --from=builder /usr/src/app/dist ./dist
 
 # Puerto expuesto por la aplicación NestJS
-EXPOSE 3008
+EXPOSE 1433
+
 
 # Comando para iniciar la aplicación en producción
 CMD ["node", "dist/main.js"]

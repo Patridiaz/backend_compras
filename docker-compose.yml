@@ -9,11 +9,9 @@ services:
     restart: always
     env_file:
       - .env
-    environment:
-      - PORT=3008
     ports:
+      - "3008:1433"
 
-      - "3008:3008"
     volumes:
       - ./uploads:/usr/src/app/uploads
     networks:
