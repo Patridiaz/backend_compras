@@ -22,7 +22,7 @@ async function bootstrap() {
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });
-  await app.listen(process.env.PORT ?? 1433);
+  await app.listen(process.env.PORT ?? 1433, '0.0.0.0');
 }
 
 bootstrap();
