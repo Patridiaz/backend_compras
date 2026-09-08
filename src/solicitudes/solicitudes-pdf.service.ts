@@ -117,6 +117,7 @@ export class SolicitudesPdfService {
                                 widths: ['40%', '60%'],
                                 body: [
                                     [{ text: 'Estado Actual:', style: 'label' }, { text: solicitud.estadoSolicitud?.nombre || 'N/A', style: 'statusValue', color: '#0a7d28' }],
+                                    [{ text: 'Periodo:', style: 'label' }, { text: String(solicitud.periodo || new Date(solicitud.fecha_solicitud).getFullYear()), style: 'value' }],
                                     [{ text: 'Monto Estimado:', style: 'label' }, { text: `$ ${Number(solicitud.monto_estimado).toLocaleString('es-CL')}`, style: 'moneyValue' }]
                                 ]
                             },

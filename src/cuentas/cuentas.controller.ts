@@ -37,8 +37,9 @@ export class CuentasController {
   }
 
   @Get()
-  findAll(@Query('q') q?: string, @Query('anio') anio?: string) {
-    return this.service.findAll(q, anio ? +anio : undefined);
+  findAll(@Query('q') q?: string, @Query('anio') anio?: string, @Query('periodo') periodo?: string) {
+    const year = anio ? +anio : (periodo ? +periodo : undefined);
+    return this.service.findAll(q, year);
   }
 
   @Get(':id')
@@ -56,26 +57,44 @@ export class CuentasController {
     return this.service.remove(+id);
   }
 
-  // ✅ NUEVO ENDPOINT DASHBOARD (Soporta filtrado por año)
+  // ✅ ENDPOINT DASHBOARD RESUMEN
   @Get('dashboard/resumen')
-  async getDashboardPresupuesto(@Request() req, @Query('anio') anio?: string) {
-    // Validar Rol (Si no tienes un decorador @Roles)
+  async getDashboardPresupuesto(@Request() req, @Query('anio') anio?: string, @Query('periodo') periodo?: string) {
     const roles = req.user.roles || [];
     const esFinanzas = roles.some((r: any) => 
         (typeof r === 'string' && r === 'FINANZAS') || 
         (typeof r === 'object' && r.nombre === 'FINANZAS') ||
-        (typeof r === 'object' && r.id === 6) // Asumiendo ID 6 es finanzas, ajusta según tu BD
+        (typeof r === 'object' && r.id === 6)
     );
     
-    // Permitir también al Admin ver esto
     const esAdmin = roles.some((r: any) => r === 'admin' || r.nombre === 'admin');
 
     if (!esFinanzas && !esAdmin) {
        throw new ForbiddenException('Acceso exclusivo para el área de Finanzas.');
     }
 
-    const year = anio ? +anio : 2026; // Sistema parte desde 2026
+    const year = anio ? +anio : (periodo ? +periodo : new Date().getFullYear());
     return this.service.obtenerEstadoPresupuestario(year);
+  }
+
+  // ✅ ENDPOINT DASHBOARD COMPLETO (Métricas y Cuentas)
+  @Get('dashboard')
+  async getDashboardCompleto(@Request() req, @Query('anio') anio?: string, @Query('periodo') periodo?: string) {
+    const roles = req.user.roles || [];
+    const esFinanzas = roles.some((r: any) => 
+        (typeof r === 'string' && r === 'FINANZAS') || 
+        (typeof r === 'object' && r.nombre === 'FINANZAS') ||
+        (typeof r === 'object' && r.id === 6)
+    );
+    
+    const esAdmin = roles.some((r: any) => r === 'admin' || r.nombre === 'admin');
+
+    if (!esFinanzas && !esAdmin) {
+       throw new ForbiddenException('Acceso exclusivo para el área de Finanzas.');
+    }
+
+    const year = anio ? +anio : (periodo ? +periodo : new Date().getFullYear());
+    return this.service.obtenerDashboardFinanzas(year);
   }
 
   @Get(':id/movimientos')
@@ -83,7 +102,7 @@ export class CuentasController {
     return this.service.obtenerMovimientosCuenta(+id);
   }
 
-  // ✅ NUEVO: Obtener lista de años disponibles
+  // ✅ Obtener lista de años disponibles
   @Get('dashboard/anios')
   async getAnios() {
     return this.service.obtenerAniosDisponibles();
@@ -91,6 +110,6 @@ export class CuentasController {
 
   @Post('duplicar-anualidad')
   async duplicarAnio(@Body() body: { origen: number; destino: number }) {
-    return this.service.duplicarAnio(body.origen, body.destino);
+    return this.service.duplicarAnio(Number(body.origen), Number(body.destino));
   }
 }

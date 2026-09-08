@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
 import { CuentaPresupuestaria } from './entities/cuenta-presupuestaria.entity';
@@ -15,7 +15,7 @@ export class CuentasService {
   create(dto: CreateCuentaDto) {
     const e = this.repo.create({
       ...dto,
-      periodo: dto.periodo ?? 2026, // Sistema parte desde 2026
+      periodo: dto.periodo ?? new Date().getFullYear(),
     });
     return this.repo.save(e);
   }
@@ -77,13 +77,11 @@ export class CuentasService {
       await this.repo.query(`
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('cuentas_presupuestarias') AND name = 'periodo')
         BEGIN
-            ALTER TABLE cuentas_presupuestarias ADD periodo INT NOT NULL DEFAULT 2025;
+            ALTER TABLE cuentas_presupuestarias ADD periodo INT NOT NULL DEFAULT 2026;
         END
       `);
 
       // 2. Intentar eliminar el índice antiguo de unicidad solo por código
-      // Nota: El nombre del índice suele ser algo como UQ_... o IDX_...
-      // Intentamos buscarlo por las columnas que lo componen
       await this.repo.query(`
         DECLARE @IndexName NVARCHAR(255);
         SELECT @IndexName = i.name
@@ -119,21 +117,15 @@ export class CuentasService {
     }
   }
 
-// ✅ MÉTODO DE REPORTE PRESUPUESTARIO (Sistema Multianual desde 2026)
+  // ✅ MÉTODO DE REPORTE PRESUPUESTARIO MULTIANUAL
   async obtenerEstadoPresupuestario(anio: number) {
-    /**
-     * REGLA DE NEGOCIO:
-     * - El sistema parte desde 2026 en adelante.
-     * - Cada año es independiente y solo suma las solicitudes de ese año calendario.
-     * - No hay arrastre de años anteriores.
-     */
     const query = this.repo.createQueryBuilder('cuenta')
       .leftJoin('cuenta.solicitudesRelaciones', 'relacion') 
       .leftJoin('relacion.solicitud', 'solicitud')
       .leftJoin('solicitud.estadoSolicitud', 'estado');
 
-    // Condición de fecha: solo solicitudes del año específico
-    const fechaCondicion = `YEAR(solicitud.fecha_solicitud) = ${anio}`;
+    // Condición de fecha/periodo: solicitudes imputadas al periodo presupuestario específico
+    const fechaCondicion = `COALESCE(solicitud.periodo, YEAR(solicitud.fecha_solicitud)) = ${anio}`;
 
     query
       .select([
@@ -162,6 +154,44 @@ export class CuentasService {
     return result;
   }
 
+  // ✅ NUEVO: Dashboard completo de finanzas con métricas totales y desglose
+  async obtenerDashboardFinanzas(anio: number) {
+    const cuentas = await this.obtenerEstadoPresupuestario(anio);
+    
+    let presupuestoTotal = 0;
+    let montoImputado = 0;
+
+    const cuentasConSaldo = cuentas.map(c => {
+      const pTotal = Number(c.presupuesto_total) || 0;
+      const tGastado = Number(c.total_gastado) || 0;
+      const saldoDisp = pTotal - tGastado;
+      
+      presupuestoTotal += pTotal;
+      montoImputado += tGastado;
+
+      return {
+        id: Number(c.id),
+        codigo: c.codigo,
+        descripcion: c.descripcion,
+        periodo: Number(c.periodo),
+        presupuesto_total: pTotal,
+        total_gastado: tGastado,
+        saldo_disponible: saldoDisp,
+      };
+    });
+
+    const saldoDisponible = presupuestoTotal - montoImputado;
+
+    return {
+      periodo: anio,
+      presupuesto_total: presupuestoTotal,
+      monto_imputado: montoImputado,
+      saldo_disponible: saldoDisponible,
+      total_cuentas: cuentasConSaldo.length,
+      cuentas: cuentasConSaldo,
+    };
+  }
+
   async obtenerAniosDisponibles() {
     const years = await this.repo.createQueryBuilder('cuenta')
       .select('DISTINCT cuenta.periodo', 'anio')
@@ -171,38 +201,62 @@ export class CuentasService {
     return years.map(y => y.anio);
   }
 
-  // ✅ NUEVO: Clonar presupuesto de un año a otro
+  // ✅ NUEVO: Clonar presupuesto de un año a otro evitando duplicados
   async duplicarAnio(origen: number, destino: number) {
+    if (!origen || !destino) {
+      throw new BadRequestException('Los parámetros origen y destino son obligatorios.');
+    }
+    if (origen === destino) {
+      throw new BadRequestException('El año de origen y destino no pueden ser iguales.');
+    }
+
     const cuentasOrigen = await this.repo.find({ where: { periodo: origen } });
-    
-    const nuevasCuentas = cuentasOrigen.map(c => {
-      const { id, ...data } = c;
+    if (cuentasOrigen.length === 0) {
+      throw new NotFoundException(`No se encontraron cuentas presupuestarias para el año origen ${origen}.`);
+    }
+
+    // Obtener códigos existentes en destino para no duplicar
+    const cuentasDestino = await this.repo.find({ where: { periodo: destino } });
+    const codigosExistentes = new Set(cuentasDestino.map(c => c.codigo?.trim().toLowerCase()));
+
+    const aCrear = cuentasOrigen.filter(c => !codigosExistentes.has(c.codigo?.trim().toLowerCase()));
+
+    if (aCrear.length === 0) {
+      return {
+        mensaje: `Todas las cuentas del año ${origen} ya existen en el año ${destino}.`,
+        clonadas: 0,
+        omitidas: cuentasOrigen.length,
+        cuentas: [],
+      };
+    }
+
+    const nuevasCuentas = aCrear.map(c => {
       return this.repo.create({
-        ...data,
+        codigo: c.codigo,
+        descripcion: c.descripcion,
         periodo: destino,
-        monto: 0 // Empezamos en 0 para el nuevo año, o podemos copiar el monto
+        monto: 0, // Presupuesto inicial en 0 según requerimiento
       });
     });
 
-    return this.repo.save(nuevasCuentas);
+    const guardadas = await this.repo.save(nuevasCuentas);
+
+    return {
+      mensaje: `Se duplicaron ${guardadas.length} cuentas del periodo ${origen} al ${destino} exitosamente.`,
+      clonadas: guardadas.length,
+      omitidas: cuentasOrigen.length - guardadas.length,
+      cuentas: guardadas,
+    };
   }
 
   async obtenerMovimientosCuenta(cuentaId: number) {
-    // Usamos el EntityManager (o repo manager) para consultar la relación directa
-    // O hacemos un QueryBuilder desde la cuenta
-    
     return this.repo.manager.createQueryBuilder('SolicitudCuentaPresupuestaria', 'relacion')
         .leftJoinAndSelect('relacion.solicitud', 'solicitud')
-        .leftJoinAndSelect('solicitud.solicitante', 'solicitante') // Para ver quién pidió
-        .leftJoinAndSelect('solicitud.estadoSolicitud', 'estado')  // Para ver el estado
+        .leftJoinAndSelect('solicitud.solicitante', 'solicitante')
+        .leftJoinAndSelect('solicitud.estadoSolicitud', 'estado')
         .where('relacion.cuentaPresupuestaria = :cuentaId', { cuentaId })
-        // FILTRO CLAVE: Excluir Rechazadas (6) y Fraccionamiento (11)
         .andWhere('solicitud.estadoSolicitud NOT IN (:...estadosExcluidos)', { estadosExcluidos: [6, 11] })
-        .orderBy('solicitud.updated_at', 'DESC') // Las más recientes primero
+        .orderBy('solicitud.updated_at', 'DESC')
         .getMany();
-}
-
-
-
-
+  }
 }

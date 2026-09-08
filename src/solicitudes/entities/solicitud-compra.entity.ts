@@ -31,6 +31,10 @@ export class SolicitudCompra {
   @Column({ type: 'varchar', length: 50, unique: true, nullable: false })
   numero_solicitud: string;
 
+  @Index()
+  @Column({ type: 'int', default: 2026 })
+  periodo: number;
+
   @ManyToOne(() => Usuario)
   @JoinColumn({ name: 'nombre_solicitante_id' })
   solicitante: Usuario;

@@ -9,6 +9,26 @@ export class UpdateSolicitudAdminDto {
   numero_solicitud?: string;
 
   @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  periodo?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  periodo_presupuestario?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  anio?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  year?: number;
+
+  @IsOptional()
   @IsString()
   materia_solicitud?: string;
 

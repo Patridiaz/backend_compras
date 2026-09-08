@@ -57,6 +57,24 @@ const maintenanceScript = `
             
         END
 
+        ----------------------------------------------------
+        -- DDL Solicitudes Compra - Columna Periodo e Índice
+        ----------------------------------------------------
+        IF COL_LENGTH('dbo.solicitudes_compra', 'periodo') IS NULL
+        BEGIN
+            EXEC('
+                ALTER TABLE dbo.solicitudes_compra ADD periodo INT NOT NULL DEFAULT 2026;
+                
+                IF NOT EXISTS (
+                    SELECT * FROM sys.indexes 
+                    WHERE name = ''IX_solicitudes_compra_periodo''
+                )
+                BEGIN
+                    CREATE INDEX IX_solicitudes_compra_periodo ON dbo.solicitudes_compra(periodo);
+                END
+            ');
+        END
+
         IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 2051)
         BEGIN
             UPDATE dbo.[user] SET area_revisora_id = 4 WHERE id = 2051;

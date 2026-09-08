@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Pme } from './entities/pme.entity';
@@ -18,7 +18,7 @@ export class PmeService {
       return [];
     }
 
-    const year = anio || 2026; // Sistema parte desde 2026
+    const year = anio || new Date().getFullYear();
     const queryBuilder = this.pmeRepo.createQueryBuilder('pme')
       .where('pme.establecimiento_id = :id', { id: establecimientoId })
       .andWhere('pme.periodo = :periodo', { periodo: year })
@@ -29,18 +29,60 @@ export class PmeService {
   }
 
   async duplicarAnio(origen: number, destino: number) {
-    const pmesOrigen = await this.pmeRepo.find({ relations: ['establecimiento'] });
-    const pmesFiltrados = pmesOrigen.filter(p => p.periodo === origen);
+    if (!origen || !destino) {
+      throw new BadRequestException('Los parámetros origen y destino son obligatorios.');
+    }
+    if (origen === destino) {
+      throw new BadRequestException('El año de origen y destino no pueden ser iguales.');
+    }
 
-    const nuevosPmes = pmesFiltrados.map(p => {
-        const { id, ...data } = p;
-        return this.pmeRepo.create({
-            ...data,
-            periodo: destino
-        });
+    const pmesOrigen = await this.pmeRepo.find({
+      where: { periodo: origen },
+      relations: ['establecimiento'],
     });
 
-    return this.pmeRepo.save(nuevosPmes);
+    if (pmesOrigen.length === 0) {
+      throw new NotFoundException(`No se encontraron PMEs para el año origen ${origen}.`);
+    }
+
+    const pmesDestino = await this.pmeRepo.find({
+      where: { periodo: destino },
+      relations: ['establecimiento'],
+    });
+
+    // Clave única para evitar duplicados por establecimiento, dimensión y acción
+    const getKey = (p: Pme) =>
+      `${p.establecimiento?.id ?? 'NULL'}_${p.dimension?.trim().toLowerCase()}_${p.descripcionAccion?.trim().toLowerCase()}`;
+
+    const existentesKeys = new Set(pmesDestino.map(getKey));
+    const aCrear = pmesOrigen.filter(p => !existentesKeys.has(getKey(p)));
+
+    if (aCrear.length === 0) {
+      return {
+        mensaje: `Todos los PMEs del año ${origen} ya existen en el año ${destino}.`,
+        clonados: 0,
+        omitidos: pmesOrigen.length,
+        pmes: [],
+      };
+    }
+
+    const nuevosPmes = aCrear.map(p => {
+      return this.pmeRepo.create({
+        dimension: p.dimension,
+        descripcionAccion: p.descripcionAccion,
+        periodo: destino,
+        establecimiento: p.establecimiento,
+      });
+    });
+
+    const guardados = await this.pmeRepo.save(nuevosPmes);
+
+    return {
+      mensaje: `Se duplicaron ${guardados.length} PMEs del periodo ${origen} al ${destino} exitosamente.`,
+      clonados: guardados.length,
+      omitidos: pmesOrigen.length - guardados.length,
+      pmes: guardados,
+    };
   }
 
   async fixDb() {
@@ -98,9 +140,15 @@ EXEC sp_rename 'pme_temp', 'pme';
     }
   }
 
-  // Opcional: Método para obtener todos los PME
-  async findAll(): Promise<Pme[]> {
+  // Método para obtener todos los PME (con filtro opcional por periodo)
+  async findAll(anio?: number): Promise<Pme[]> {
+    const where: any = {};
+    if (anio) {
+      where.periodo = anio;
+    }
     return this.pmeRepo.find({
+      where,
+      relations: ['establecimiento'],
       order: { id: 'ASC' },
     });
   }

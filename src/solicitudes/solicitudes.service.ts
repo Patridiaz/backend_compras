@@ -375,90 +375,115 @@ export class SolicitudesService {
 
 
 
-
-
-
   // =================================================================
   // === MÉTODOS CRUD ===
   // =================================================================
+  // === HELPER CORRELATIVO POR PERIODO ===
+  // =================================================================
+  async generarNumeroSolicitud(periodo: number): Promise<string> {
+    const yearSuffix = Number(periodo).toString().slice(-2);
+    const prefijo = `COMPRAS${yearSuffix}-`;
 
-// solicitudes-compra.service.ts - Método create modificado
+    const solicitudes = await this.repo
+      .createQueryBuilder('solicitud')
+      .select('solicitud.numero_solicitud', 'numero_solicitud')
+      .where('solicitud.numero_solicitud LIKE :prefijo', { prefijo: `${prefijo}%` })
+      .getRawMany();
 
-async create(
-  dto: CreateSolicitudDto,
-  usuarioSolicitante: Usuario, 
-  files?: any
-): Promise<SolicitudCompra> {
-  
-  // 1. Extraer los IDs del DTO
-  const {
-    nombre_solicitante_id,
-    establecimiento_id,
-    area_revisora_id,
-    fondo_id,
-    modalidad_id,
-    pme_id,
-    ...otrosDatos 
-  } = dto;
-
-  // 2. Obtener todas las entidades relacionadas
-  const [
-    estadoInicial, establecimiento, areaRevisora,
-    fondo, modalidad, pme
-  ] = await Promise.all([
-    this.estadosRepo.findOneBy({ id: 4 }), // Estado "Borrador" (ID 4 según BD)
-    this.repo.manager.findOneBy(Establecimiento, { id: establecimiento_id }),
-    this.areasRepo.findOneBy({ id: area_revisora_id }),
-    this.repo.manager.findOneBy(Fondo, { id: fondo_id }),
-    this.repo.manager.findOneBy(Modalidad, { id: modalidad_id }),
-    pme_id ? this.repo.manager.findOneBy(Pme, { id: pme_id }) : Promise.resolve(null),
-  ]);
-
-  // 3. Verificamos que todas las entidades obligatorias existan
-  if (!estadoInicial) throw new InternalServerErrorException("El estado 'Borrador' no se encontró.");
-  if (!establecimiento) throw new BadRequestException('El ID del establecimiento no es válido.');
-  if (!areaRevisora) throw new BadRequestException('El ID del área revisora no es válido.');
-  if (!fondo) throw new BadRequestException('El ID del fondo no es válido.');
-  if (!modalidad) throw new BadRequestException('El ID de la modalidad no es válido.');
-  
-  // 4. GENERACIÓN DEL NÚMERO DE SOLICITUD (CORRELATIVO DE NEGOCIO DINÁMICO)
-  // Generamos el prefijo basado en el año actual (ej: COMPRAS26-)
-  const yearSuffix = new Date().getFullYear().toString().slice(-2);
-  const prefijo = `COMPRAS${yearSuffix}-`;
-  
-  const lastSolicitud = await this.repo
-    .createQueryBuilder('solicitud')
-    .select('solicitud.numero_solicitud')
-    .where('solicitud.numero_solicitud LIKE :prefijo', { prefijo: `${prefijo}%` })
-    .orderBy('solicitud.numero_solicitud', 'DESC')
-    .getOne();
-
-  let proximoNumero = 1;
-  if (lastSolicitud && lastSolicitud.numero_solicitud) {
-    const partes = lastSolicitud.numero_solicitud.split('-');
-    if (partes.length > 1) {
-      const ultimoNumero = parseInt(partes[1], 10);
-      if (!isNaN(ultimoNumero)) {
-        proximoNumero = ultimoNumero + 1;
+    let maxNumero = 0;
+    for (const row of solicitudes) {
+      const numStr = row.numero_solicitud || row.solicitud_numero_solicitud;
+      if (numStr) {
+        const partes = numStr.split('-');
+        if (partes.length > 1) {
+          const num = parseInt(partes[1], 10);
+          if (!isNaN(num) && num > maxNumero) {
+            maxNumero = num;
+          }
+        }
       }
     }
+
+    let proximoNumero = maxNumero + 1;
+    let candidato = `${prefijo}${String(proximoNumero).padStart(5, '0')}`;
+
+    // Verificación adicional de seguridad para evitar colisiones
+    while (await this.repo.findOne({ where: { numero_solicitud: candidato } })) {
+      proximoNumero++;
+      candidato = `${prefijo}${String(proximoNumero).padStart(5, '0')}`;
+    }
+
+    return candidato;
   }
 
-  const numeroCorrelativo = String(proximoNumero).padStart(5, '0');
-  const folioGenerado = prefijo + numeroCorrelativo;
+  // solicitudes-compra.service.ts - Método create modificado
 
-  // 5. Creamos el objeto final con los OBJETOS COMPLETOS
-  const data: Partial<SolicitudCompra> = {
-    ...otrosDatos,
-    numero_solicitud: folioGenerado, // <-- AHORA ASIGNADO ANTES DE GUARDAR
-    solicitante: usuarioSolicitante,
-    estadoSolicitud: estadoInicial, // Debería ser ID 4 (Borrador)
-    establecimiento,
-    areaRevisora,
-    fondo,
-    modalidad,
-    pme,
-  };
+  async create(
+    dto: CreateSolicitudDto,
+    usuarioSolicitante: Usuario, 
+    files?: any
+  ): Promise<SolicitudCompra> {
+    
+    // 1. Extraer los IDs del DTO
+    const {
+      nombre_solicitante_id,
+      establecimiento_id,
+      area_revisora_id,
+      fondo_id,
+      modalidad_id,
+      pme_id,
+      periodo,
+      periodo_presupuestario,
+      anio,
+      year,
+      numero_solicitud,
+      fecha_solicitud,
+      ...otrosDatos 
+    } = dto;
+
+    // Determinar periodo presupuestario (soporta periodo, periodo_presupuestario, anio, year)
+    const periodoRaw = periodo ?? periodo_presupuestario ?? anio ?? year;
+    const periodoFinal = (periodoRaw !== undefined && periodoRaw !== null && String(periodoRaw).trim() !== '')
+      ? Number(periodoRaw)
+      : (fecha_solicitud ? new Date(fecha_solicitud).getFullYear() : new Date().getFullYear());
+
+    // 2. Obtener todas las entidades relacionadas
+    const [
+      estadoInicial, establecimiento, areaRevisora,
+      fondo, modalidad, pme
+    ] = await Promise.all([
+      this.estadosRepo.findOneBy({ id: 4 }), // Estado "Borrador" (ID 4 según BD)
+      this.repo.manager.findOneBy(Establecimiento, { id: establecimiento_id }),
+      this.areasRepo.findOneBy({ id: area_revisora_id }),
+      this.repo.manager.findOneBy(Fondo, { id: fondo_id }),
+      this.repo.manager.findOneBy(Modalidad, { id: modalidad_id }),
+      pme_id ? this.repo.manager.findOneBy(Pme, { id: pme_id }) : Promise.resolve(null),
+    ]);
+
+    // 3. Verificamos que todas las entidades obligatorias existan
+    if (!estadoInicial) throw new InternalServerErrorException("El estado 'Borrador' no se encontró.");
+    if (!establecimiento) throw new BadRequestException('El ID del establecimiento no es válido.');
+    if (!areaRevisora) throw new BadRequestException('El ID del área revisora no es válido.');
+    if (!fondo) throw new BadRequestException('El ID del fondo no es válido.');
+    if (!modalidad) throw new BadRequestException('El ID de la modalidad no es válido.');
+    
+    // 4. GENERACIÓN DEL NÚMERO DE SOLICITUD (CORRELATIVO DE NEGOCIO DINÁMICO)
+    const folioGenerado = await this.generarNumeroSolicitud(periodoFinal);
+
+    // 5. Creamos el objeto final con los OBJETOS COMPLETOS
+    const data: Partial<SolicitudCompra> = {
+      ...otrosDatos,
+      periodo: periodoFinal,
+      numero_solicitud: folioGenerado, // <-- AHORA ASIGNADO ANTES DE GUARDAR
+      solicitante: usuarioSolicitante,
+      estadoSolicitud: estadoInicial, // Debería ser ID 4 (Borrador)
+      establecimiento,
+      areaRevisora,
+      fondo,
+      modalidad,
+      pme,
+      ...(fecha_solicitud ? { fecha_solicitud: new Date(fecha_solicitud) } : {}),
+    };
   
   // La lógica para manejar archivos
   if (files) {
@@ -486,13 +511,13 @@ async create(
   const fullSolicitud = await this.findOne(saved.id);
   this.notifyStatusChange(fullSolicitud, undefined, undefined).catch(e => console.error('Error enviando correo Create:', e));
   
-  return saved;
+  return fullSolicitud;
 
 }
 
 async findOne(id: number): Promise<SolicitudCompra> {
-    const solicitud = await this.repo.findOne({
-      where: { id },
+    const solicitud = await this.repo.findOne({
+      where: { id },
       relations: [
             'solicitante',
             'solicitante.roles',
@@ -514,16 +539,21 @@ async findOne(id: number): Promise<SolicitudCompra> {
             'pme',
             'anexos',
           ],
-    });
-    if (!solicitud) {
-      throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
-    }
-    return solicitud;
-  }
+    });
+    if (!solicitud) {
+      throw new NotFoundException(`Solicitud con ID ${id} no encontrada.`);
+    }
+    return solicitud;
+   }
 
 
-  async findAll(): Promise<SolicitudCompra[]> {
+  async findAll(periodo?: number): Promise<SolicitudCompra[]> {
+    const where: any = {};
+    if (periodo) {
+      where.periodo = periodo;
+    }
     return this.repo.find({
+      where,
       // Carga solo las relaciones necesarias para la vista principal, por rendimiento.
       relations: [
         'establecimiento', 'areaRevisora', 'estadoSolicitud',
@@ -536,157 +566,194 @@ async findOne(id: number): Promise<SolicitudCompra> {
 
 
 async update(
-    id: number, 
-    dto: UpdateSolicitudDto, 
-    usuarioActual: Usuario, 
-    files?: any
+    id: number, 
+    dto: UpdateSolicitudDto, 
+    usuarioActual: Usuario, 
+    files?: any
 ): Promise<SolicitudCompra> {
-    
-    if (!usuarioActual || !usuarioActual.id) {
-        throw new ForbiddenException('No se pudo identificar al usuario autenticado para realizar esta acción.');
-    }
+    
+    if (!usuarioActual || !usuarioActual.id) {
+        throw new ForbiddenException('No se pudo identificar al usuario autenticado para realizar esta acción.');
+    }
 
-    const existingSolicitud = await this.repo.findOne({ 
-        where: { id },
-        relations: ['estadoSolicitud', 'solicitante'] 
-    });
+    const existingSolicitud = await this.repo.findOne({ 
+        where: { id },
+        relations: [
+          'estadoSolicitud', 
+          'solicitante',
+          'establecimiento',
+          'areaRevisora',
+          'fondo',
+          'modalidad',
+          'pme'
+        ] 
+    });
 
-    if (!existingSolicitud) {
-        throw new NotFoundException(`Solicitud ${id} no encontrada.`);
-    }
+    if (!existingSolicitud) {
+        throw new NotFoundException(`Solicitud ${id} no encontrada.`);
+    }
 
-    let payloadToMerge: Partial<SolicitudCompra> = {};
-    
-    const {
-        area_revisora_id, 
-        fondo_id, 
-        modalidad_id, 
-        pme_id, 
-        nombre_solicitante_id, 
-        establecimiento_id, 
+    const {
+        area_revisora_id, 
+        fondo_id, 
+        modalidad_id, 
+        pme_id, 
+        nombre_solicitante_id, 
+        establecimiento_id, 
+        periodo,
+        periodo_presupuestario,
+        anio,
+        year,
+        numero_solicitud,
+        fecha_solicitud,
+        ...dataFields 
+    } = dto;
 
-        ...dataFields 
-    } = dto;
+    const periodoRaw = periodo ?? periodo_presupuestario ?? anio ?? year;
+    const periodoNuevo = (periodoRaw !== undefined && periodoRaw !== null && String(periodoRaw).trim() !== '')
+        ? Number(periodoRaw)
+        : undefined;
 
-    let debeCambiarAEnRevision = false; // Flag para cambiar a estado 3
+    let nuevoNumeroSolicitud: string | undefined = undefined;
 
-    if (existingSolicitud.estadoSolicitud.id === 10) {
-        // LÓGICA DE ACTUALIZACIÓN DESDE ESTADO DEVUELTO (ID 10)
-        
-        const solicitanteId = existingSolicitud.solicitante.id;
-        const usuarioLogueadoId = Number(usuarioActual.id);
-        
-        console.log('ID Solicitante DB:', solicitanteId);
-        console.log('ID Usuario Logueado (Después de Fix):', usuarioLogueadoId);
+    if (periodoNuevo !== undefined) {
+        // Si está en Borrador (4), Ingresada (1) o Devuelta (10) y el folio no coincide con el nuevo periodo, regenerar
+        const estadosPermitidosRegenerar = [1, 4, 10];
+        const yearSuffix = periodoNuevo.toString().slice(-2);
+        const prefijoEsperado = `COMPRAS${yearSuffix}-`;
+        const estadoActualId = existingSolicitud.estadoSolicitud?.id;
 
-        if (solicitanteId !== usuarioLogueadoId) {
-            throw new ForbiddenException('Solo el solicitante original puede modificar una solicitud devuelta.');
-        }
+        if (
+            (!estadoActualId || estadosPermitidosRegenerar.includes(estadoActualId)) &&
+            (!existingSolicitud.numero_solicitud || !existingSolicitud.numero_solicitud.startsWith(prefijoEsperado))
+        ) {
+            nuevoNumeroSolicitud = await this.generarNumeroSolicitud(periodoNuevo);
+            console.log(`[CORRELATIVO] Solicitud #${id} cambió a periodo ${periodoNuevo}. Folio regenerado: ${nuevoNumeroSolicitud}`);
+        }
+    }
 
-        // Campos que el solicitante puede editar cuando es devuelta
-        const safeDataFields: Partial<SolicitudCompra> = {
-            materia_solicitud: dataFields.materia_solicitud,
-            fundamentos_solicitud: dataFields.fundamentos_solicitud,
-            observaciones_considerar: dataFields.observaciones_considerar,
-            monto_estimado: dataFields.monto_estimado,
-            id_convenio_marco: dataFields.id_convenio_marco,
-            
-            cotizacion: dataFields.cotizacion, 
-            terminos_de_referencia: dataFields.terminos_de_referencia,
-            bt: dataFields.bt,
-            req_compra_agil: dataFields.req_compra_agil,
-            nominas: dataFields.nominas,
-            espec_productos: dataFields.espec_productos,
-        };
-        
-          payloadToMerge = {
-                  ...safeDataFields, 
-                  // Se permite actualizar algunas FKs también
-                  ...(area_revisora_id !== undefined && { areaRevisora: { id: area_revisora_id } as any }),
-                  ...(fondo_id !== undefined && { fondo: { id: fondo_id } as any }),
-                  ...(modalidad_id !== undefined && { modalidad: { id: modalidad_id } as any }),
-                  ...(pme_id !== undefined && { pme: { id: pme_id } as any }),
-              };
-        
-        // 🚨 CORRECCIÓN AQUÍ: Si se edita una solicitud devuelta, debe reenviarse a revisión (ID 3).
-        debeCambiarAEnRevision = true; 
-        
-    } else {
-        // LÓGICA DE ACTUALIZACIÓN DESDE OTROS ESTADOS (1, 4, etc.)
-        payloadToMerge = {
-            ...dataFields, 
-            
-            // Mapeo de IDs a Relaciones para TypeORM:
-            ...(area_revisora_id !== undefined && { areaRevisora: { id: area_revisora_id } as any }),
-            ...(fondo_id !== undefined && { fondo: { id: fondo_id } as any }),
-            ...(modalidad_id !== undefined && { modalidad: { id: modalidad_id } as any}),
-            ...(pme_id !== undefined && { pme: { id: pme_id }as any }),
-        };
+    let payloadToMerge: Partial<SolicitudCompra> = {};
+    
+    let debeCambiarAEnRevision = false; // Flag para cambiar a estado 3
 
-         // Si está en Ingresada (1), avanzamos a revisión. 
+    if (existingSolicitud.estadoSolicitud?.id === 10) {
+        // LÓGICA DE ACTUALIZACIÓN DESDE ESTADO DEVUELTO (ID 10)
+        
+        const solicitanteId = existingSolicitud.solicitante?.id;
+        const usuarioLogueadoId = Number(usuarioActual.id);
+        
+        console.log('ID Solicitante DB:', solicitanteId);
+        console.log('ID Usuario Logueado (Después de Fix):', usuarioLogueadoId);
+
+        if (solicitanteId && solicitanteId !== usuarioLogueadoId) {
+            throw new ForbiddenException('Solo el solicitante original puede modificar una solicitud devuelta.');
+        }
+
+        // Campos que el solicitante puede editar cuando es devuelta
+        const safeDataFields: Partial<SolicitudCompra> = {
+            materia_solicitud: dataFields.materia_solicitud,
+            fundamentos_solicitud: dataFields.fundamentos_solicitud,
+            observaciones_considerar: dataFields.observaciones_considerar,
+            monto_estimado: dataFields.monto_estimado,
+            id_convenio_marco: dataFields.id_convenio_marco,
+            
+            cotizacion: dataFields.cotizacion, 
+            terminos_de_referencia: dataFields.terminos_de_referencia,
+            bt: dataFields.bt,
+            req_compra_agil: dataFields.req_compra_agil,
+            nominas: dataFields.nominas,
+            espec_productos: dataFields.espec_productos,
+            ...(periodoNuevo !== undefined && { periodo: periodoNuevo }),
+            ...(nuevoNumeroSolicitud !== undefined && { numero_solicitud: nuevoNumeroSolicitud }),
+            ...(fecha_solicitud ? { fecha_solicitud: new Date(fecha_solicitud) } : {}),
+        };
+        
+        payloadToMerge = {
+            ...safeDataFields, 
+            ...(area_revisora_id !== undefined && { areaRevisora: { id: Number(area_revisora_id) } as any }),
+            ...(fondo_id !== undefined && { fondo: { id: Number(fondo_id) } as any }),
+            ...(modalidad_id !== undefined && { modalidad: { id: Number(modalidad_id) } as any }),
+            ...(establecimiento_id !== undefined && { establecimiento: { id: Number(establecimiento_id) } as any }),
+            ...(pme_id !== undefined && { pme: pme_id ? ({ id: Number(pme_id) } as any) : null }),
+        };
+        
+        debeCambiarAEnRevision = true; 
+        
+    } else {
+        // LÓGICA DE ACTUALIZACIÓN DESDE OTROS ESTADOS (1, 4, etc.)
+        payloadToMerge = {
+            ...dataFields, 
+            ...(periodoNuevo !== undefined && { periodo: periodoNuevo }),
+            ...(nuevoNumeroSolicitud !== undefined && { numero_solicitud: nuevoNumeroSolicitud }),
+            ...(fecha_solicitud ? { fecha_solicitud: new Date(fecha_solicitud) } : {}),
+            
+            // Mapeo de IDs a Relaciones para TypeORM:
+            ...(area_revisora_id !== undefined && { areaRevisora: { id: Number(area_revisora_id) } as any }),
+            ...(fondo_id !== undefined && { fondo: { id: Number(fondo_id) } as any }),
+            ...(modalidad_id !== undefined && { modalidad: { id: Number(modalidad_id) } as any }),
+            ...(establecimiento_id !== undefined && { establecimiento: { id: Number(establecimiento_id) } as any }),
+            ...(nombre_solicitante_id !== undefined && { solicitante: { id: Number(nombre_solicitante_id) } as any }),
+            ...(pme_id !== undefined && { pme: pme_id ? ({ id: Number(pme_id) } as any) : null }),
+        };
+
+        // Si está en Ingresada (1), avanzamos a revisión. 
         // Si está en Borrador (4), se mantiene en borrador hasta que se envíe explícitamente.
-        if (existingSolicitud.estadoSolicitud.id === 1) {
+        if (existingSolicitud.estadoSolicitud?.id === 1) {
              debeCambiarAEnRevision = true;
         }
-    }
-    // ==========================================================
+    }
+    // ==========================================================
 
-    // 3. Limpiamos los valores 'undefined' para no intentar actualizar campos no enviados.
-    Object.keys(payloadToMerge).forEach(key => {
-        if (payloadToMerge[key as keyof Partial<SolicitudCompra>] === undefined) {
-            delete payloadToMerge[key as keyof Partial<SolicitudCompra>];
-        }
-    });
+    // 3. Limpiamos los valores 'undefined' para no intentar actualizar campos no enviados.
+    Object.keys(payloadToMerge).forEach(key => {
+        if (payloadToMerge[key as keyof Partial<SolicitudCompra>] === undefined) {
+            delete payloadToMerge[key as keyof Partial<SolicitudCompra>];
+        }
+    });
 
-    // 4. Aplicar el payload sobre la entidad existente.
-    Object.assign(existingSolicitud, payloadToMerge);
-    
-    // 5. Lógica de Manejo de Archivos (Mantenida)
-if (files) {
+    // 4. Aplicar el payload sobre la entidad existente.
+    Object.assign(existingSolicitud, payloadToMerge);
+    
+    // 5. Lógica de Manejo de Archivos (Mantenida)
+    if (files) {
+        const basePath = '/uploads/';
+        for (const key in files) {
+            if (key === 'anexos') continue;
+            if (files[key]?.[0]) {
+                type FileKeys = 'cotizacion' | 'terminos_de_referencia' | 'bt' | 'req_compra_agil' | 'nominas' | 'espec_productos';
+                
+                const entityKey = key as keyof SolicitudCompra;
+                
+                if (key in existingSolicitud && (existingSolicitud as any)[key] !== undefined) {
+                    if (['cotizacion', 'terminos_de_referencia', 'bt', 'req_compra_agil', 'nominas', 'espec_productos'].includes(key)) {
+                        const fileKey = key as FileKeys;
+                        existingSolicitud[fileKey] = basePath + files[key][0].filename; 
+                    }
+                }
+            }
+        }
+    }
+    
+    existingSolicitud.updated_at = new Date();
 
-         const basePath = '/uploads/';
-           for (const key in files) {
-                if (key === 'anexos') continue;
-                       if (files[key]?.[0]) {
-                          type FileKeys = 'cotizacion' | 'terminos_de_referencia' | 'bt' | 'req_compra_agil' | 'nominas' | 'espec_productos';
-                          
-                          const entityKey = key as keyof SolicitudCompra;
-                          
-                          if (key in existingSolicitud && (existingSolicitud as any)[key] !== undefined) {
-                              if (['cotizacion', 'terminos_de_referencia', 'bt', 'req_compra_agil', 'nominas', 'espec_productos'].includes(key)) {
-
-                                  const fileKey = key as FileKeys;
-                                  const oldFilePath = existingSolicitud[fileKey];
-
-                                  // ... (Lógica de borrado de archivo omitida por brevedad) ...
-
-                                  existingSolicitud[fileKey] = basePath + files[key][0].filename; 
-                              }
-                          }
-                      }
-                  }
-    }
-    
-    existingSolicitud.updated_at = new Date();
-
-    // 7. APLICAR CAMBIO DE ESTADO A "EN REVISIÓN" (ID 3) SI APLICA
-    if (debeCambiarAEnRevision) {
-        const nuevoEstado = await this.estadosRepo.findOneBy({ id: 3 }); // 3 = "En revisión"
-        if (!nuevoEstado) {
-            throw new InternalServerErrorException("El estado 'En revisión' (ID 3) no se encontró.");
-        }
-        existingSolicitud.estadoSolicitud = nuevoEstado;
-    }
-    
-    // 6. Guardar y devolver la entidad
-     const saved = await this.repo.save(existingSolicitud);
+    // 7. APLICAR CAMBIO DE ESTADO A "EN REVISIÓN" (ID 3) SI APLICA
+    if (debeCambiarAEnRevision) {
+        const nuevoEstado = await this.estadosRepo.findOneBy({ id: 3 }); // 3 = "En revisión"
+        if (!nuevoEstado) {
+            throw new InternalServerErrorException("El estado 'En revisión' (ID 3) no se encontró.");
+        }
+        existingSolicitud.estadoSolicitud = nuevoEstado;
+    }
+    
+    // 6. Guardar y devolver la entidad fresca con relaciones
+    const saved = await this.repo.save(existingSolicitud);
 
     // Procesar Anexos DESPUÉS de guardar (para evitar que TypeORM los borre por orphanedRowAction al sincronizar)
     if (files && files.anexos) {
         await this.processAnexos(saved, files.anexos);
     }
     
-    return saved;
+    return this.findOne(saved.id);
 }
 
   private async processAnexos(solicitud: SolicitudCompra, anexosFiles: any[]) {
@@ -776,15 +843,20 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
     return { ok: true };
   }
 
-  async findForAreaRevisoraQueue(areaId: number): Promise<SolicitudCompra[]> {
+  async findForAreaRevisoraQueue(areaId: number, periodo?: number): Promise<SolicitudCompra[]> {
     console.log(`\n🔍 [DEBUG] findForAreaRevisoraQueue - Buscando solicitudes para área ID: ${areaId}`);
     
+    const whereRevision: any = { 
+      areaRevisora: { id: areaId },
+      estadoSolicitud: { id: 3 },
+    };
+    if (periodo) {
+      whereRevision.periodo = periodo;
+    }
+
     // Primero, verificamos TODAS las solicitudes con este área y estado 3, sin filtrar por asignación
     const todasEnRevision = await this.repo.find({
-      where: { 
-        areaRevisora: { id: areaId },
-        estadoSolicitud: { id: 3 },
-      },
+      where: whereRevision,
       relations: ['establecimiento', 'estadoSolicitud', 'solicitante', 'areaRevisora', 'areaAsignado'],
       order: { fecha_solicitud: 'DESC' },
     });
@@ -802,12 +874,17 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
     }
     
     // Ahora aplicamos el filtro completo (incluyendo areaAsignado = NULL)
+    const whereQueue: any = { 
+      areaRevisora: { id: areaId },
+      areaAsignado: IsNull(),
+      estadoSolicitud: { id: 3 }, // 3 = "En revisión"
+    };
+    if (periodo) {
+      whereQueue.periodo = periodo;
+    }
+
     const resultado = await this.repo.find({
-      where: { 
-        areaRevisora: { id: areaId },
-        areaAsignado: IsNull(),
-        estadoSolicitud: { id: 3 }, // 3 = "En revisión"
-      },
+      where: whereQueue,
       relations: ['establecimiento', 'estadoSolicitud', 'solicitante', 'areaRevisora'],
       order: { fecha_solicitud: 'DESC' },
     });
@@ -822,9 +899,13 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
     return resultado;
   }
 
-  async findForAreaRevisoraUser(userId: number): Promise<SolicitudCompra[]> {
+  async findForAreaRevisoraUser(userId: number, periodo?: number): Promise<SolicitudCompra[]> {
+    const where: any = { areaAsignado: { id: userId } };
+    if (periodo) {
+      where.periodo = periodo;
+    }
     return this.repo.find({
-      where: { areaAsignado: { id: userId } },
+      where,
       relations: ['establecimiento', 'estadoSolicitud', 'solicitante'],
       order: { updated_at: 'DESC' },
     });
@@ -975,31 +1056,43 @@ async revisarSolicitud(solicitudId: number, dto: RevisarSolicitudDto, usuarioRev
   return this.findOne(solicitudId); 
 }
 
-  async findForFinanzasQueue(): Promise<SolicitudCompra[]> {
+  async findForFinanzasQueue(periodo?: number): Promise<SolicitudCompra[]> {
+    const where: any = { 
+      finAsignado: IsNull(),
+      estadoSolicitud: { id: 7 }
+    };
+    if (periodo) {
+      where.periodo = periodo;
+    }
     return this.repo.find({
-      where: { 
-        finAsignado: IsNull(),
-        estadoSolicitud: { id: 7 }
-      },
+      where,
       relations: ['establecimiento', 'estadoSolicitud', 'solicitante'],
       order: { fecha_solicitud: 'DESC' },
     });
   }
 
-  async findForCompradorQueue(): Promise<SolicitudCompra[]> {
+  async findForCompradorQueue(periodo?: number): Promise<SolicitudCompra[]> {
+    const where: any = { 
+      compradorAsignado: IsNull(),
+      estadoSolicitud: { id: 8 }
+    };
+    if (periodo) {
+      where.periodo = periodo;
+    }
     return this.repo.find({
-      where: { 
-        compradorAsignado: IsNull(),
-        estadoSolicitud: { id: 8 }
-      },
+      where,
       relations: ['establecimiento', 'estadoSolicitud', 'solicitante'],
       order: { fecha_solicitud: 'DESC' },
     });
   }
 
-  async findForFinanzasUser(userId: number): Promise<SolicitudCompra[]> {
+  async findForFinanzasUser(userId: number, periodo?: number): Promise<SolicitudCompra[]> {
+    const where: any = { finAsignado: { id: userId } };
+    if (periodo) {
+      where.periodo = periodo;
+    }
     return this.repo.find({
-      where: { finAsignado: { id: userId } },
+      where,
       relations: [
         'establecimiento', 'areaRevisora','estadoSolicitud',
         'solicitante', 'finAsignado', 'compradorAsignado', 'areaAsignado'
@@ -1009,28 +1102,28 @@ async revisarSolicitud(solicitudId: number, dto: RevisarSolicitudDto, usuarioRev
   }
 
 async assignToFinanzas(id: number, dto: AssignFinanzasDto): Promise<SolicitudCompra> {
-    const [solicitud, usuario] = await Promise.all([
-      // ✅ CORRECCIÓN: Usamos findOne con 'relations' para cargar 'estadoSolicitud'
-      this.repo.findOne({ where: { id }, relations: ['estadoSolicitud'] }), 
-      this.usuarioRepo.findOneBy({ id: dto.fin_asignado_id }),
-    ]);
-    if (!solicitud) throw new NotFoundException('Solicitud no encontrada.');
-    if (!usuario) throw new BadRequestException('El usuario a asignar no existe.');
+    const [solicitud, usuario] = await Promise.all([
+      // ✅ CORRECCIÓN: Usamos findOne con 'relations' para cargar 'estadoSolicitud'
+      this.repo.findOne({ where: { id }, relations: ['estadoSolicitud'] }), 
+      this.usuarioRepo.findOneBy({ id: dto.fin_asignado_id }),
+    ]);
+    if (!solicitud) throw new NotFoundException('Solicitud no encontrada.');
+    if (!usuario) throw new BadRequestException('El usuario a asignar no existe.');
 
-    // Validación de estado
-    if (solicitud.estadoSolicitud.id !== 7) {
-        throw new BadRequestException('La solicitud debe estar en estado "Pendiente Aprobación Finanzas" (ID 7) para ser asignada.');
-    }
+    // Validación de estado
+    if (solicitud.estadoSolicitud.id !== 7) {
+        throw new BadRequestException('La solicitud debe estar en estado "Pendiente Aprobación Finanzas" (ID 7) para ser asignada.');
+    }
     
-    solicitud.finAsignado = usuario;
-    await this.repo.save(solicitud);
+    solicitud.finAsignado = usuario;
+    await this.repo.save(solicitud);
     
     // [NOTIFICACIÓN] - Notificar al usuario asignado
     const fullSolicitud = await this.findOne(id);
     this.notifyStatusChange(fullSolicitud, 'Asignación Finanzas', undefined).catch(e => console.error('Error enviando correo Asignación Finanzas:', e));
     
     return fullSolicitud;
-  }
+   }
 
 
 async updateFinanzas(id: number, dto: UpdateFinanzasDto): Promise<SolicitudCompra> {
@@ -1066,6 +1159,14 @@ async updateFinanzas(id: number, dto: UpdateFinanzasDto): Promise<SolicitudCompr
 
     if (cuentas.length !== uniqueIds.length) {
       throw new BadRequestException('Uno o más IDs de cuentas presupuestarias son inválidos.');
+    }
+
+    // Validar que las cuentas pertenezcan al periodo de la solicitud
+    const periodoSolicitud = solicitudActual.periodo || (solicitudActual.fecha_solicitud ? new Date(solicitudActual.fecha_solicitud).getFullYear() : new Date().getFullYear());
+    const cuentasIncompatibles = cuentas.filter(c => c.periodo !== periodoSolicitud);
+    if (cuentasIncompatibles.length > 0) {
+      const detalle = cuentasIncompatibles.map(c => `${c.codigo} (Periodo ${c.periodo})`).join(', ');
+      throw new BadRequestException(`No se pueden imputar cuentas de un periodo distinto al de la solicitud (${periodoSolicitud}). Cuentas incompatibles: ${detalle}`);
     }
 
     const cuentasMap = new Map(cuentas.map(c => [c.id, c]));
@@ -1159,9 +1260,13 @@ async updateFinanzas(id: number, dto: UpdateFinanzasDto): Promise<SolicitudCompr
 
 
 
-  async findForCompradorUser(userId: number): Promise<SolicitudCompra[]> {
+  async findForCompradorUser(userId: number, periodo?: number): Promise<SolicitudCompra[]> {
+    const where: any = { compradorAsignado: { id: userId } };
+    if (periodo) {
+      where.periodo = periodo;
+    }
     return this.repo.find({
-      where: { compradorAsignado: { id: userId } },
+      where,
       relations: ['establecimiento', 'estadoSolicitud', 'solicitante'],
       order: { updated_at: 'DESC' },
     });
@@ -1398,16 +1503,20 @@ async updateComprador(id: number, dto: UpdateCompradorDto): Promise<SolicitudCom
 /**
  * Encuentra las solicitudes que están pendientes de aprobación final por la Jefa DEM (ID 10).
  */
-async findForJefaDemQueue(): Promise<SolicitudCompra[]> {
+async findForJefaDemQueue(periodo?: number): Promise<SolicitudCompra[]> {
+    const where: any = { 
+        estadoSolicitud: { id: 9 }, // 9 = Pendiente Aprobación Jefa DEM
+    };
+    if (periodo) {
+      where.periodo = periodo;
+    }
     return this.repo.find({
-        where: { 
-        estadoSolicitud: { id: 9 }, // 9 = Pendiente Aprobación Jefa DEM
-      },
-      relations: [
-        'establecimiento', 'estadoSolicitud', 'solicitante', 'areaRevisora'
-      ],
-      order: { updated_at: 'DESC' },
-    });
+        where,
+        relations: [
+          'establecimiento', 'estadoSolicitud', 'solicitante', 'areaRevisora'
+        ],
+        order: { updated_at: 'DESC' },
+    });
 }
 
 /**
@@ -1703,6 +1812,23 @@ async devolverAlSolicitante(
 
     // 2. Actualizar campos simples (si vienen en el DTO)
     if (dto.numero_solicitud !== undefined) solicitud.numero_solicitud = dto.numero_solicitud;
+
+    const periodoRaw = dto.periodo ?? (dto as any).periodo_presupuestario ?? (dto as any).anio ?? (dto as any).year;
+    if (periodoRaw !== undefined && periodoRaw !== null && String(periodoRaw).trim() !== '') {
+      const periodoNum = Number(periodoRaw);
+      if (solicitud.periodo !== periodoNum) {
+        solicitud.periodo = periodoNum;
+        if (!dto.numero_solicitud) {
+          const yearSuffix = periodoNum.toString().slice(-2);
+          const prefijoEsperado = `COMPRAS${yearSuffix}-`;
+          if (!solicitud.numero_solicitud || !solicitud.numero_solicitud.startsWith(prefijoEsperado)) {
+            solicitud.numero_solicitud = await this.generarNumeroSolicitud(periodoNum);
+            console.log(`[CORRELATIVO ADMIN] Solicitud #${id} cambió a periodo ${periodoNum}. Folio regenerado: ${solicitud.numero_solicitud}`);
+          }
+        }
+      }
+    }
+
     if (dto.materia_solicitud !== undefined) solicitud.materia_solicitud = dto.materia_solicitud;
     if (dto.fundamentos_solicitud !== undefined) solicitud.fundamentos_solicitud = dto.fundamentos_solicitud;
     if (dto.monto_estimado !== undefined) solicitud.monto_estimado = dto.monto_estimado;
@@ -1795,6 +1921,14 @@ async devolverAlSolicitante(
         const cuentaIds = cuentasParsed.map(c => Number(c.cuentaId));
         const uniqueIds = [...new Set(cuentaIds)];
         const cuentasEntidades = await this.cuentasRepo.find({ where: { id: In(uniqueIds) } });
+
+        // Validar que las cuentas pertenezcan al periodo de la solicitud
+        const periodoSolicitud = solicitud.periodo || (solicitud.fecha_solicitud ? new Date(solicitud.fecha_solicitud).getFullYear() : new Date().getFullYear());
+        const cuentasIncompatibles = cuentasEntidades.filter(c => c.periodo !== periodoSolicitud);
+        if (cuentasIncompatibles.length > 0) {
+          const detalle = cuentasIncompatibles.map(c => `${c.codigo} (Periodo ${c.periodo})`).join(', ');
+          throw new BadRequestException(`No se pueden imputar cuentas de un periodo distinto al de la solicitud (${periodoSolicitud}). Cuentas incompatibles: ${detalle}`);
+        }
 
         const cuentasMap = new Map(cuentasEntidades.map(c => [c.id, c]));
 
@@ -2017,7 +2151,7 @@ async devolverAlSolicitante(
 // =================================================================
   // === ROL VIEWER (ID 9) - SOLO LECTURA GLOBAL ===
   // =================================================================
-  async findAllReadOnly(usuario: Usuario): Promise<SolicitudCompra[]> {
+  async findAllReadOnly(usuario: Usuario, periodo?: number): Promise<SolicitudCompra[]> {
     
     const tienePermiso = usuario.roles.some((rol: any) => {
         // Opción A: El rol es un Objeto (viene de la BD) -> Chequeamos ID o Nombre
@@ -2042,7 +2176,13 @@ async devolverAlSolicitante(
     }
 
     // 2. BUSQUEDA DE DATOS
+    const where: any = {};
+    if (periodo) {
+      where.periodo = periodo;
+    }
+
     return this.repo.find({
+      where,
       relations: [
         'solicitante',
         'establecimiento',

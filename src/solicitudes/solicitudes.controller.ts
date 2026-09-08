@@ -8,6 +8,8 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
+  Query,
   Req,
   Request,
   UploadedFiles,
@@ -121,19 +123,26 @@ export class SolicitudesController {
 
   
   @Get()
-  findAll() {
-    return this.service.findAll();
+  findAll(@Query('periodo') periodo?: string, @Query('anio') anio?: string) {
+    const targetPeriodo = periodo ? parseInt(periodo, 10) : (anio ? parseInt(anio, 10) : undefined);
+    return this.service.findAll(targetPeriodo);
   }
 
   // --- FINANZAS (siempre ANTES de :id)
   @Get('finanzas/queue')
-  findFinanzasQueue() {
-    return this.service.findForFinanzasQueue();
+  findFinanzasQueue(@Query('periodo') periodo?: string, @Query('anio') anio?: string) {
+    const targetPeriodo = periodo ? parseInt(periodo, 10) : (anio ? parseInt(anio, 10) : undefined);
+    return this.service.findForFinanzasQueue(targetPeriodo);
   }
 
   @Get('finanzas/mias/:userId')
-  findFinanzasMine(@Param('userId') userId: string) {
-    return this.service.findForFinanzasUser(Number(userId));
+  findFinanzasMine(
+    @Param('userId') userId: string,
+    @Query('periodo') periodo?: string,
+    @Query('anio') anio?: string
+  ) {
+    const targetPeriodo = periodo ? parseInt(periodo, 10) : (anio ? parseInt(anio, 10) : undefined);
+    return this.service.findForFinanzasUser(Number(userId), targetPeriodo);
   }
 
   @Post(':id/finanzas/assign')
@@ -157,13 +166,19 @@ export class SolicitudesController {
   // --- COMPRAS (siempre ANTES de :id)
 
   @Get('compras/queue')
-  findCompradorQueue() {
-    return this.service.findForCompradorQueue();
+  findCompradorQueue(@Query('periodo') periodo?: string, @Query('anio') anio?: string) {
+    const targetPeriodo = periodo ? parseInt(periodo, 10) : (anio ? parseInt(anio, 10) : undefined);
+    return this.service.findForCompradorQueue(targetPeriodo);
   }
 
   @Get('compras/mias/:userId')
-  findCompradorMine(@Param('userId') userId: string) {
-    return this.service.findForCompradorUser(Number(userId));
+  findCompradorMine(
+    @Param('userId') userId: string,
+    @Query('periodo') periodo?: string,
+    @Query('anio') anio?: string
+  ) {
+    const targetPeriodo = periodo ? parseInt(periodo, 10) : (anio ? parseInt(anio, 10) : undefined);
+    return this.service.findForCompradorUser(Number(userId), targetPeriodo);
   }
 
   @Post(':id/compras/assign')
@@ -204,8 +219,13 @@ export class SolicitudesController {
 
   // --- ÁREAS REVISORAS (siempre ANTES de :id) ---
   @Get('areas/:areaId/queue')
-  findAreaRevisoraQueue(@Param('areaId') areaId: string) {
-    return this.service.findForAreaRevisoraQueue(Number(areaId));
+  findAreaRevisoraQueue(
+    @Param('areaId') areaId: string,
+    @Query('periodo') periodo?: string,
+    @Query('anio') anio?: string
+  ) {
+    const targetPeriodo = periodo ? parseInt(periodo, 10) : (anio ? parseInt(anio, 10) : undefined);
+    return this.service.findForAreaRevisoraQueue(Number(areaId), targetPeriodo);
   }
 
   @Post(':id/areas/assign')
@@ -215,8 +235,13 @@ export class SolicitudesController {
 
   // --- AÑADE ESTE NUEVO ENDPOINT ---
   @Get('areas/mias/:userId')
-  findAreaRevisoraMine(@Param('userId') userId: string) {
-    return this.service.findForAreaRevisoraUser(Number(userId));
+  findAreaRevisoraMine(
+    @Param('userId') userId: string,
+    @Query('periodo') periodo?: string,
+    @Query('anio') anio?: string
+  ) {
+    const targetPeriodo = periodo ? parseInt(periodo, 10) : (anio ? parseInt(anio, 10) : undefined);
+    return this.service.findForAreaRevisoraUser(Number(userId), targetPeriodo);
   }
 
   // 🔧 ENDPOINT DE DIAGNÓSTICO: Ver todas las solicitudes en estado 3 agrupadas por área
@@ -237,10 +262,11 @@ export class SolicitudesController {
   }
 
   // --- JEFATURA DEM (siempre ANTES de :id) ---
-  @Get('jefadem/queue')
-  findJefaDemQueue() {
-    return this.service.findForJefaDemQueue();
-  }
+  @Get('jefadem/queue')
+  findJefaDemQueue(@Query('periodo') periodo?: string, @Query('anio') anio?: string) {
+    const targetPeriodo = periodo ? parseInt(periodo, 10) : (anio ? parseInt(anio, 10) : undefined);
+    return this.service.findForJefaDemQueue(targetPeriodo);
+  }
 
    @Post(':id/jefadem/aprobar')
    aprobarJefaDem(
@@ -298,6 +324,7 @@ export class SolicitudesController {
   }
 
 @Patch(':id')
+@Put(':id')
 @UseInterceptors( // 👈 ¡AGREGAR ESTE BLOQUE!
     FileFieldsInterceptor(
         [
@@ -412,9 +439,12 @@ update(
 // --- ENDPOINT PARA ROL SOLICITUD_VIEW (ID 9) ---
   @Get('viewer/all')
   async getSolicitudesViewer(
-    @Request() req
+    @Request() req,
+    @Query('periodo') periodo?: string,
+    @Query('anio') anio?: string
   ) {
+    const targetPeriodo = periodo ? parseInt(periodo, 10) : (anio ? parseInt(anio, 10) : undefined);
     // Pasamos el usuario completo al servicio para que él valide
-    return this.service.findAllReadOnly(req.user as Usuario);
+    return this.service.findAllReadOnly(req.user as Usuario, targetPeriodo);
   }
 }
