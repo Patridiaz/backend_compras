@@ -1763,8 +1763,9 @@ async devolverAlSolicitante(
   }
 
   // 3. Registro de Observación
+  const nombreRevisor = usuarioRevisor?.name || (usuarioRevisor as any)?.nombre || 'Compras / Revisor';
   const observacion = this.obsRepo.create({
-    observacion: `[DEVOLUCIÓN - ${usuarioRevisor.name}] ${dto.observacion}`,
+    observacion: `[DEVOLUCIÓN - ${nombreRevisor}] ${dto.observacion}`,
     usuario: usuarioRevisor,
     areaRevisora: solicitud.areaRevisora, // Usamos el área de la solicitud
     solicitud: solicitud,
@@ -1787,7 +1788,7 @@ async devolverAlSolicitante(
   
   // [NOTIFICACIÓN]
   const fullSolicitud = await this.findOne(solicitudId);
-  this.notifyStatusChange(fullSolicitud, usuarioRevisor.name, dto.observacion).catch(e => console.error('Error enviando correo Devolver:', e));
+  this.notifyStatusChange(fullSolicitud, nombreRevisor, dto.observacion).catch(e => console.error('Error enviando correo Devolver:', e));
   
   return fullSolicitud;
 }
