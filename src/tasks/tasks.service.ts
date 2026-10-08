@@ -125,9 +125,9 @@ const maintenanceScript = `
         BEGIN
             UPDATE dbo.[user] SET area_revisora_id = 6 WHERE id = 5115;
         END
-        IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 4078)
+        IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 2065)
         BEGIN
-            UPDATE dbo.[user] SET area_revisora_id = 3 WHERE id = 4078;
+            UPDATE dbo.[user] SET area_revisora_id = 3 WHERE id = 2065;
         END
         IF EXISTS (SELECT 1 FROM dbo.[user] WHERE id = 2077)
         BEGIN
