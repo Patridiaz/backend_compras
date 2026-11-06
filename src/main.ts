@@ -11,10 +11,10 @@ async function bootstrap() {
 
   app.enableCors({
     origin: [
-      'https://www.compras.axus.cl',
-      'https://compras.axus.cl',
+      'https://www.compras.eduhuechuraba.cl',
       'http://localhost:4200',
-      'https://www.compras.eduhuechuraba.cl'
+      'https://www.compras.eduhuechuraba.cl',
+      'https://compras.eduhuechuraba.cl',
     ],
     credentials: true,
     allowedHeaders: 'Content-Type, Authorization, Accept, Origin, X-Requested-With',
