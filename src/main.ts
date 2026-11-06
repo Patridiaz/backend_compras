@@ -14,7 +14,7 @@ async function bootstrap() {
       'https://www.compras.axus.cl',
       'https://compras.axus.cl',
       'http://localhost:4200',
-      'https://compras.eduhuechuraba.cl'
+      'https://www.compras.eduhuechuraba.cl'
     ],
     credentials: true,
     allowedHeaders: 'Content-Type, Authorization, Accept, Origin, X-Requested-With',
