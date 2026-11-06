@@ -634,8 +634,6 @@ async update(
 
     let payloadToMerge: Partial<SolicitudCompra> = {};
     
-    let debeCambiarAEnRevision = false; // Flag para cambiar a estado 3
-
     if (existingSolicitud.estadoSolicitud?.id === 10) {
         // LÓGICA DE ACTUALIZACIÓN DESDE ESTADO DEVUELTO (ID 10)
         
@@ -677,8 +675,6 @@ async update(
             ...(pme_id !== undefined && { pme: pme_id ? ({ id: Number(pme_id) } as any) : null }),
         };
         
-        debeCambiarAEnRevision = true; 
-        
     } else {
         // LÓGICA DE ACTUALIZACIÓN DESDE OTROS ESTADOS (1, 4, etc.)
         payloadToMerge = {
@@ -696,11 +692,6 @@ async update(
             ...(pme_id !== undefined && { pme: pme_id ? ({ id: Number(pme_id) } as any) : null }),
         };
 
-        // Si está en Ingresada (1), avanzamos a revisión. 
-        // Si está en Borrador (4), se mantiene en borrador hasta que se envíe explícitamente.
-        if (existingSolicitud.estadoSolicitud?.id === 1) {
-             debeCambiarAEnRevision = true;
-        }
     }
     // ==========================================================
 
@@ -736,15 +727,6 @@ async update(
     
     existingSolicitud.updated_at = new Date();
 
-    // 7. APLICAR CAMBIO DE ESTADO A "EN REVISIÓN" (ID 3) SI APLICA
-    if (debeCambiarAEnRevision) {
-        const nuevoEstado = await this.estadosRepo.findOneBy({ id: 3 }); // 3 = "En revisión"
-        if (!nuevoEstado) {
-            throw new InternalServerErrorException("El estado 'En revisión' (ID 3) no se encontró.");
-        }
-        existingSolicitud.estadoSolicitud = nuevoEstado;
-    }
-    
     // 6. Guardar y devolver la entidad fresca con relaciones
     const saved = await this.repo.save(existingSolicitud);
 
@@ -795,10 +777,10 @@ async enviarParaRevision(solicitudId: number, usuarioSolicitante: Usuario): Prom
     if (solicitud.solicitante.id !== usuarioSolicitante.id) {
       throw new ForbiddenException('No tienes permiso para realizar esta acción.');
     }
-     // El estado inicial ahora es 4 ("Borrador"), mantenemos 1 por compatibilidad.
-     if (solicitud.estadoSolicitud.id !== 1 && solicitud.estadoSolicitud.id !== 4) { 
-      throw new BadRequestException('Esta solicitud ya ha sido enviada a revisión.');
-    }
+    // Permitir el envío desde borrador, devolución o el estado inicial histórico.
+    if (![1, 4, 10].includes(solicitud.estadoSolicitud.id)) {
+      throw new BadRequestException('Esta solicitud ya ha sido enviada a revisión.');
+    }
 
     const nuevoEstado = await this.estadosRepo.findOneBy({ id: 3 }); // 3 = "En revisión "
     if (!nuevoEstado) {
